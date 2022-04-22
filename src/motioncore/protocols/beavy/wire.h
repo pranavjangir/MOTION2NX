@@ -66,8 +66,29 @@ inline std::ostream& operator<<(std::ostream& os, const BooleanBEAVYWire& w) {
 template <typename T>
 class ArithmeticBEAVYWire : public NewWire, public ENCRYPTO::enable_wait_setup {
  public:
-  ArithmeticBEAVYWire(std::size_t num_simd)
-      : NewWire(num_simd), public_share_(num_simd), secret_share_(num_simd) {}
+  ArithmeticBEAVYWire(std::size_t num_simd, std::size_t num_parties = 2)
+      : NewWire(num_simd), public_share_(num_simd), secret_share_(num_simd) {
+        // Assuming `num_simd` = 1, the vector for public shares and secret shares
+        // are logically used to represent the many secret shares, instead of 
+        // instances of the num_simd.
+        // That is, each index in the vector represents a share.
+        
+        // TODO: Fix num_simd != 1 case.
+        if (num_simd > 1 || num_parties == 2) {
+          return;
+        }
+        std::cout << "PArties : " << num_parties << std::endl;
+        // Set the corruption threshold to half of num_parties.
+        // Explicit assumption that num_parties is odd integer.
+        assert(num_parties%2 == 1);
+        std::size_t t = num_parties / 2;
+        // Each party will have a single public share.
+        public_share_.resize(((1 << num_parties)), 0);
+        // Each party will have (n-1 CHOOSE t) private shares.
+        secret_share_.resize((1 << num_parties), 0);
+
+        std::cout << "Share size inside wire : " << secret_share_.size() << " " << public_share_.size() << std::endl;
+      }
   MPCProtocol get_protocol() const noexcept override { return MPCProtocol::ArithmeticBEAVY; }
   std::size_t get_bit_size() const noexcept override { return ENCRYPTO::bit_size_v<T>; }
   std::pair<std::vector<T>&, std::vector<T>&> get_share() {

@@ -237,9 +237,14 @@ class ArithmeticBEAVYOutputGate : public NewGate {
  private:
   BEAVYProvider& beavy_provider_;
   std::size_t num_wires_;
+  // Only P_king will use this to store the output of all alpha shares.
+  std::size_t alpha_sum_store_;
   std::size_t output_owner_;
   ENCRYPTO::ReusableFiberPromise<std::vector<T>> output_promise_;
+  // `share_future_` is deprecated, kept around for legacy reasons.
+  // Use `share_multi_party_future_` for all sharing instead.
   ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_;
+  std::vector<ENCRYPTO::ReusableFiberFuture<std::vector<T>>> share_multi_party_future_;
   const ArithmeticBEAVYWireP<T> input_;
 };
 

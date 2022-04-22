@@ -40,3 +40,31 @@ CTestTestfile.cmake
 
 # doxygen
 docs/Doxyfile
+dbg/bin/aes128
+dbg/bin/benchmark_garbling
+dbg/bin/benchmark_integers
+dbg/bin/benchmark_nn_layers
+dbg/bin/benchmark_operations
+dbg/bin/benchmark_providers
+dbg/bin/cryptonets
+dbg/bin/evaluate_circuit_from_file
+dbg/bin/example_template
+dbg/bin/flatc
+dbg/bin/millionaires_problem
+dbg/bin/motiontest
+dbg/bin/mpclan_addition
+dbg/bin/sha256
+dbg/bin/triple_generator
+dbg/extern/benchmark/src/generated/benchmark.pc
+dbg/extern/benchmark/src/generated/benchmarkConfigVersion.cmake
+dbg/extern/googletest/googletest/generated/gtest_main.pc
+dbg/extern/googletest/googletest/generated/gtest.pc
+dbg/extern/googletest/googletest/generated/GTestConfigVersion.cmake
+dbg/flatbuffers-build/FlatbuffersConfigVersion.cmake
+dbg/lib/libbenchmark_main.a
+dbg/lib/libbenchmark.a
+dbg/lib/libgtest_maind.a
+dbg/lib/libgtestd.a
+dbg/lib/libmotion.a
+dbg/src/motioncore/version.cpp
+dbg/src/motioncore/version.cpp.new

@@ -277,6 +277,16 @@ class BEAVYProvider : public GateFactory,
   ENCRYPTO::ReusableFiberFuture<IntegerValues<T>> basic_make_arithmetic_tensor_output_my(
       const tensor::TensorCP&);
 
+ public:
+    const std::size_t get_p_king() { return p_king_; }
+    const std::size_t get_total_shares() { return total_shares_; }
+    const std::vector<std::vector<std::size_t> > get_owned_shares() {
+        return owned_shares_;
+    }
+    const std::vector<std::vector<std::size_t> > get_shares_for_p_king() {
+        return shares_for_p_king_;
+    }
+
  private:
   Communication::CommunicationLayer& communication_layer_;
   GateRegister& gate_register_;
@@ -285,6 +295,10 @@ class BEAVYProvider : public GateFactory,
   ENCRYPTO::ObliviousTransfer::OTProviderManager& ot_manager_;
   ArithmeticProviderManager& arith_manager_;
   std::size_t my_id_;
+  std::size_t p_king_;
+  std::vector<std::vector<std::size_t> > owned_shares_;
+  std::vector<std::vector<std::size_t> > shares_for_p_king_;
+  std::size_t total_shares_;
   std::size_t num_parties_;
   std::size_t next_input_id_;
   std::shared_ptr<Logger> logger_;

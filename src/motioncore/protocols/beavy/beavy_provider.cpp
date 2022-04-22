@@ -62,9 +62,46 @@ BEAVYProvider::BEAVYProvider(Communication::CommunicationLayer& communication_la
       next_input_id_(0),
       logger_(std::move(logger)),
       fake_setup_(fake_setup) {
-  if (communication_layer.get_num_parties() != 2) {
-    throw std::logic_error("currently only two parties are supported");
+  if (communication_layer.get_num_parties()%2 == 0 || 
+     communication_layer.get_num_parties() < 3) {
+    throw std::logic_error("MPCLan only supports > 3 parties, and we support only odd number of total parties currently.");
   }
+  std::cout << "MPCLan Provider: Entered setup for beavy provider\n\n";
+  // Evaluator set: P_0 ... P_t
+  // Helper set: P_t+1 ... P_2t
+  p_king_ = 0;
+
+  // Corruption Threshold.
+  std::size_t t = (num_parties_ / 2);
+
+  owned_shares_.resize(num_parties_);
+  shares_for_p_king_.resize(num_parties_);
+  total_shares_ = 0;
+  // TODO: Make this step more optimized, instead of looping over all subsets.
+  for (std::size_t subset = 1; subset < (1LL << num_parties_); ++subset) {
+    if (__builtin_popcount(subset) != t) {
+      continue;
+    }
+    bool p_king_needs_share = ((subset&(1LL << p_king_)) != 0);
+    bool sent_to_p_king = false;
+    for (std::size_t party = 0; party < num_parties_; party++) {
+      if ((subset&(1LL << party)) == 0) {
+        owned_shares_[party].push_back(total_shares_);
+        std::cout <<"Print share index : "<< total_shares_;
+        if (p_king_needs_share && !sent_to_p_king && party <= t
+        && party != p_king_) {
+          shares_for_p_king_[party].push_back(total_shares_);
+          sent_to_p_king = true;
+        }
+      }
+    }
+    ++total_shares_;
+  }
+  for (int i = 0; i < num_parties_; ++i) {
+    std::cout << "Party " << i << " owned shares : " << owned_shares_[i].size() << ", pking share : " << shares_for_p_king_[i].size() << std::endl;
+  }
+  std::cout << "MPCLan Provider: Total shares: " << total_shares_ << std::endl;
+  // TODO: instead of printing, assert(total_shares_ = N_Choose_T).
 }
 
 BEAVYProvider::~BEAVYProvider() = default;

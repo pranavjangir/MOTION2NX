@@ -325,9 +325,9 @@ TwoPartySBProvider::TwoPartySBProvider(Communication::CommunicationLayer& commun
       ot_provider_(ot_provider),
       run_time_stats_(run_time_stats),
       logger_(std::move(logger)) {
-  if (communication_layer.get_num_parties() != 2) {
-    throw std::logic_error("TwoPartySBProvider implements a two-party protocol");
-  }
+  // if (communication_layer.get_num_parties() != 2) {
+  //   throw std::logic_error("TwoPartySBProvider implements a two-party protocol");
+  // }
 }
 
 TwoPartySBProvider::~TwoPartySBProvider() = default;

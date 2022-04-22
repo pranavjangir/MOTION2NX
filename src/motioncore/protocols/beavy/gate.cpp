@@ -524,8 +524,8 @@ ArithmeticBEAVYInputGateSender<T>::ArithmeticBEAVYInputGateSender(
       num_simd_(num_simd),
       input_id_(beavy_provider.get_next_input_id(1)),
       input_future_(std::move(input_future)),
-      output_(std::make_shared<ArithmeticBEAVYWire<T>>(num_simd)) {
-  output_->get_public_share().resize(num_simd, 0);
+      output_(std::make_shared<ArithmeticBEAVYWire<T>>(num_simd, beavy_provider.get_num_parties())) {
+  // output_->get_public_share().resize(num_simd, 0);
 }
 
 template <typename T>
@@ -543,18 +543,29 @@ void ArithmeticBEAVYInputGateSender<T>::evaluate_setup() {
   auto& mbp = beavy_provider_.get_motion_base_provider();
   auto& my_secret_share = output_->get_secret_share();
   auto& my_public_share = output_->get_public_share();
-  my_secret_share = Helpers::RandomVector<T>(num_simd_);
-  output_->set_setup_ready();
-  my_public_share = my_secret_share;
-  for (std::size_t party_id = 0; party_id < num_parties; ++party_id) {
-    if (party_id == my_id) {
-      continue;
-    }
-    auto& rng = mbp.get_my_randomness_generator(party_id);
-    std::transform(std::begin(my_public_share), std::end(my_public_share),
-                   std::begin(rng.GetUnsigned<T>(input_id_, num_simd_)),
-                   std::begin(my_public_share), std::plus{});
+  // my_secret_share = Helpers::RandomVector<T>(num_simd_);
+  // output_->set_setup_ready();
+  // my_public_share = my_secret_share;
+  // for (std::size_t party_id = 0; party_id < num_parties; ++party_id) {
+  //   if (party_id == my_id) {
+  //     continue;
+  //   }
+  //   auto& rng = mbp.get_my_randomness_generator(party_id);
+  //   std::transform(std::begin(my_public_share), std::end(my_public_share),
+  //                  std::begin(rng.GetUnsigned<T>(input_id_, num_simd_)),
+  //                  std::begin(my_public_share), std::plus{});
+  // }
+  std::cout << "Share size inside gate : " << my_secret_share.size() << " " << my_public_share.size() << std::endl;
+  std::cout << "Total shares : " << beavy_provider_.get_total_shares() << std::endl;
+  assert(my_secret_share.size() >= beavy_provider_.get_total_shares());
+
+  my_public_share[0] = 0;
+  for (std::size_t share_idx = 0; share_idx < beavy_provider_.get_total_shares(); share_idx++) {
+    my_secret_share[share_idx] = share_idx + 10;
+    my_public_share[0] += my_secret_share[share_idx];
   }
+
+  output_->set_setup_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
@@ -583,10 +594,16 @@ void ArithmeticBEAVYInputGateSender<T>::evaluate_online() {
 
   // compute my share
   auto& my_public_share = output_->get_public_share();
-  std::transform(std::begin(my_public_share), std::end(my_public_share), std::begin(input),
-                 std::begin(my_public_share), std::plus{});
+  my_public_share[0] += input[0];
+  // std::transform(std::begin(my_public_share), std::end(my_public_share), std::begin(input),
+  //                std::begin(my_public_share), std::plus{});
   output_->set_online_ready();
-  beavy_provider_.broadcast_ints_message(gate_id_, my_public_share);
+  // beavy_provider_.broadcast_ints_message(gate_id_, my_public_share);
+  std::size_t t = beavy_provider_.get_num_parties() / 2;
+  for (int party = 0; party <= t; party++) {
+    if (party == beavy_provider_.get_my_id()) continue;
+    beavy_provider_.send_ints_message(party, gate_id_, std::vector<T>(1, my_public_share[0]));
+  }
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
@@ -612,9 +629,13 @@ ArithmeticBEAVYInputGateReceiver<T>::ArithmeticBEAVYInputGateReceiver(std::size_
       num_simd_(num_simd),
       input_owner_(input_owner),
       input_id_(beavy_provider.get_next_input_id(1)),
-      output_(std::make_shared<ArithmeticBEAVYWire<T>>(num_simd)) {
-  public_share_future_ =
-      beavy_provider_.register_for_ints_message<T>(input_owner_, gate_id_, num_simd);
+      output_(std::make_shared<ArithmeticBEAVYWire<T>>(num_simd, beavy_provider.get_num_parties())) {
+  std::size_t my_id = beavy_provider_.get_my_id();
+  std::size_t t = beavy_provider_.get_num_parties() / 2;
+  if (my_id <= t) {
+    public_share_future_ =
+        beavy_provider_.register_for_ints_message<T>(input_owner_, gate_id_, num_simd);
+  }
 }
 
 template <typename T>
@@ -627,9 +648,29 @@ void ArithmeticBEAVYInputGateReceiver<T>::evaluate_setup() {
     }
   }
 
-  auto& mbp = beavy_provider_.get_motion_base_provider();
-  auto& rng = mbp.get_their_randomness_generator(input_owner_);
-  output_->get_secret_share() = rng.GetUnsigned<T>(input_id_, num_simd_);
+  // auto& mbp = beavy_provider_.get_motion_base_provider();
+  // auto& rng = mbp.get_their_randomness_generator(input_owner_);
+  // output_->get_secret_share() = rng.GetUnsigned<T>(input_id_, num_simd_);
+  // output_->set_setup_ready();
+
+  auto& my_secret_share = output_->get_secret_share();
+  auto& my_public_share = output_->get_public_share();
+  std::cout << "Share size inside gate : " << my_secret_share.size() << " " << my_public_share.size() << std::endl;
+  std::cout << "Total shares : " << beavy_provider_.get_total_shares() << std::endl;
+  assert(my_secret_share.size() >= beavy_provider_.get_total_shares());
+
+  my_public_share[0] = 0;
+  std::size_t my_id = beavy_provider_.get_my_id();
+  assert(my_id < beavy_provider_.get_num_parties());
+  std::cout << "my-id : " << my_id << std::endl;
+  
+  const auto& owned_shares = beavy_provider_.get_owned_shares();
+  std::cout << "owned shares size : " << owned_shares.size() << std::endl;
+  std::cout << "owned shares my id size : " << owned_shares[my_id].size() << std::endl;
+  for (std::size_t share_indx : owned_shares[my_id]) {
+    my_secret_share[share_indx] = share_indx + 10;
+  }
+
   output_->set_setup_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
@@ -650,8 +691,10 @@ void ArithmeticBEAVYInputGateReceiver<T>::evaluate_online() {
           "Gate {}: ArithmeticBEAVYInputGateReceiver<T>::evaluate_online start", gate_id_));
     }
   }
-
-  output_->get_public_share() = public_share_future_.get();
+  if (beavy_provider_.get_my_id() <= beavy_provider_.get_num_parties()/2) {
+    auto& my_public_share = output_->get_public_share();
+    my_public_share[0] = public_share_future_.get()[0];
+  }
   output_->set_online_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
@@ -678,9 +721,21 @@ ArithmeticBEAVYOutputGate<T>::ArithmeticBEAVYOutputGate(std::size_t gate_id,
       output_owner_(output_owner),
       input_(std::move(input)) {
   std::size_t my_id = beavy_provider_.get_my_id();
+  // if (output_owner_ == ALL_PARTIES || output_owner_ == my_id) {
+  //   share_future_ =
+  //       beavy_provider_.register_for_ints_message<T>(1 - my_id, gate_id_, input_->get_num_simd());
+  // }
   if (output_owner_ == ALL_PARTIES || output_owner_ == my_id) {
-    share_future_ =
-        beavy_provider_.register_for_ints_message<T>(1 - my_id, gate_id_, input_->get_num_simd());
+    share_multi_party_future_.resize(beavy_provider.get_num_parties());
+    std::size_t t = beavy_provider_.get_num_parties() / 2;
+    std::size_t p_king = beavy_provider_.get_p_king();
+    if (my_id == p_king) {
+      share_multi_party_future_ = beavy_provider_.register_for_ints_messages<T>(
+        gate_id_, input_->get_num_simd());
+    } else {
+      share_multi_party_future_[p_king] = beavy_provider_.register_for_ints_message<T>(
+        p_king, gate_id_, input_->get_num_simd());
+    }
   }
 }
 
@@ -705,13 +760,45 @@ void ArithmeticBEAVYOutputGate<T>::evaluate_setup() {
   }
 
   std::size_t my_id = beavy_provider_.get_my_id();
+  std::size_t t = beavy_provider_.get_num_parties() / 2;
+  std::size_t p_king = beavy_provider_.get_p_king();
+
+  std::cout << "Reconstruction offline happening: Gate id: "  << gate_id_ << " " << my_id << " " << p_king << " " << t << std::endl;
   if (output_owner_ != my_id) {
     input_->wait_setup();
     auto my_secret_share = input_->get_secret_share();
+    std::cout << "Share size inside gate : " << my_secret_share.size() << std::endl;
+    std::cout << "Total shares : " << beavy_provider_.get_total_shares() << std::endl;
+    assert(my_secret_share.size() >= beavy_provider_.get_total_shares());
     if (output_owner_ == ALL_PARTIES) {
-      beavy_provider_.broadcast_ints_message(gate_id_, my_secret_share);
+
+      const auto& owned_shares = beavy_provider_.get_owned_shares();
+      const auto& shares_for_p_king = beavy_provider_.get_shares_for_p_king();
+      if (my_id != p_king) {
+        std::size_t share_to_send_p_king = 0;
+        if (!shares_for_p_king[my_id].empty()) {
+          for (const auto indx : shares_for_p_king[my_id]) {
+            share_to_send_p_king += my_secret_share[indx];
+          }
+        }
+        beavy_provider_.send_ints_message(p_king, gate_id_, std::vector<T>(1, share_to_send_p_king));
+      } else {
+        // Contribute locally your share.
+        // Then combine w/ the shares you get from other parties.
+        // This constitues all the sum of alphas.
+        alpha_sum_store_ = 0;
+        for (const auto idx : owned_shares[p_king]) {
+          alpha_sum_store_ += my_secret_share[idx];
+        }
+        for (int party = 0; party <= t; ++party) {
+          if (party == my_id) continue;
+          alpha_sum_store_ += share_multi_party_future_[party].get()[0];
+        }
+      }
+      // beavy_provider_.broadcast_ints_message(gate_id_, my_secret_share);
     } else {
-      beavy_provider_.send_ints_message(output_owner_, gate_id_, my_secret_share);
+      throw std::logic_error("MPCLan: Output reconstruction towards specific party is not yet implemented.");
+      // beavy_provider_.send_ints_message(output_owner_, gate_id_, my_secret_share);
     }
   }
 
@@ -735,16 +822,34 @@ void ArithmeticBEAVYOutputGate<T>::evaluate_online() {
   }
 
   std::size_t my_id = beavy_provider_.get_my_id();
+  std::size_t p_king = beavy_provider_.get_p_king();
+  std::size_t t = beavy_provider_.get_num_parties() / 2;
+
+  std::cout << "Reconstruction online happening: Gate id: "  << gate_id_ << " " << my_id << " " << p_king << " " << t << std::endl;
   if (output_owner_ == ALL_PARTIES || output_owner_ == my_id) {
     input_->wait_setup();
-    auto my_secret_share = input_->get_secret_share();
-    const auto other_secret_share = share_future_.get();
-    std::transform(std::begin(my_secret_share), std::end(my_secret_share),
-                   std::begin(other_secret_share), std::begin(my_secret_share), std::plus{});
+    // auto my_secret_share = input_->get_secret_share();
+    // const auto other_secret_share = share_future_.get();
+    // std::transform(std::begin(my_secret_share), std::end(my_secret_share),
+    //                std::begin(other_secret_share), std::begin(my_secret_share), std::plus{});
     input_->wait_online();
-    std::transform(std::begin(input_->get_public_share()), std::end(input_->get_public_share()),
-                   std::begin(my_secret_share), std::begin(my_secret_share), std::minus{});
-    output_promise_.set_value(std::move(my_secret_share));
+    // std::transform(std::begin(input_->get_public_share()), std::end(input_->get_public_share()),
+    //                std::begin(my_secret_share), std::begin(my_secret_share), std::minus{});
+    if (my_id != p_king) {
+      // Recieve the broadcast from p_king.
+      // Set the output promise.
+      const auto output_cleartext = share_multi_party_future_[p_king].get();
+      output_promise_.set_value(std::move(output_cleartext));
+    } else {
+      // Unmask the value, then broadcast to all evaluator parties.
+      // Set the output promise.
+      std::size_t unmasked_value = input_->get_public_share()[0] - alpha_sum_store_;
+      for (int party = 0; party <= t + t; party++) {
+        if (party == my_id) continue;
+        beavy_provider_.send_ints_message(party, gate_id_, std::vector<T>(1, unmasked_value));
+      }
+      output_promise_.set_value(std::move(std::vector<T>(1, unmasked_value)));
+    }
   }
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
@@ -888,16 +993,17 @@ ArithmeticBEAVYADDGate<T>::ArithmeticBEAVYADDGate(std::size_t gate_id,
                                                   ArithmeticBEAVYWireP<T>&& in_b)
     : detail::BasicArithmeticBEAVYBinaryGate<T>(gate_id, beavy_provider, std::move(in_a),
                                                 std::move(in_b)) {
-  this->output_->get_public_share().resize(this->input_a_->get_num_simd());
-  this->output_->get_secret_share().resize(this->input_a_->get_num_simd());
+  std::size_t num_parties = beavy_provider.get_num_parties();
+  this->output_->get_public_share().resize((1LL << num_parties));
+  this->output_->get_secret_share().resize((1LL << num_parties));
 }
 
 template <typename T>
 void ArithmeticBEAVYADDGate<T>::evaluate_setup() {
   this->input_a_->wait_setup();
   this->input_b_->wait_setup();
-  assert(this->output_->get_secret_share().size() == this->input_a_->get_num_simd());
-  assert(this->output_->get_secret_share().size() == this->input_b_->get_num_simd());
+  // assert(this->output_->get_secret_share().size() == this->input_a_->get_num_simd());
+  // assert(this->output_->get_secret_share().size() == this->input_b_->get_num_simd());
   std::transform(std::begin(this->input_a_->get_secret_share()),
                  std::end(this->input_a_->get_secret_share()),
                  std::begin(this->input_b_->get_secret_share()),
@@ -909,7 +1015,7 @@ template <typename T>
 void ArithmeticBEAVYADDGate<T>::evaluate_online() {
   this->input_a_->wait_online();
   this->input_b_->wait_online();
-  assert(this->output_->get_public_share().size() == this->input_a_->get_num_simd());
+  // assert(this->output_->get_public_share().size() == this->input_a_->get_num_simd());
   std::transform(std::begin(this->input_a_->get_public_share()),
                  std::end(this->input_a_->get_public_share()),
                  std::begin(this->input_b_->get_public_share()),
