@@ -298,6 +298,7 @@ class BEAVYProvider : public GateFactory,
   std::size_t p_king_;
   std::vector<std::vector<std::size_t> > owned_shares_;
   std::vector<std::vector<std::size_t> > shares_for_p_king_;
+  std::vector<std::vector<std::pair<std::size_t, std::size_t> > > mup_shares_for_p_king_;
   std::size_t total_shares_;
   std::size_t num_parties_;
   std::size_t next_input_id_;

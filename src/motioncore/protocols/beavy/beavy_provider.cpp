@@ -76,6 +76,7 @@ BEAVYProvider::BEAVYProvider(Communication::CommunicationLayer& communication_la
 
   owned_shares_.resize(num_parties_);
   shares_for_p_king_.resize(num_parties_);
+  mup_shares_for_p_king_.resize(num_parties_);
   total_shares_ = 0;
   // TODO: Make this step more optimized, instead of looping over all subsets.
   for (std::size_t subset = 1; subset < (1LL << num_parties_); ++subset) {
@@ -94,6 +95,31 @@ BEAVYProvider::BEAVYProvider(Communication::CommunicationLayer& communication_la
           sent_to_p_king = true;
         }
       }
+    }
+    
+    // Compute which parties will send which shares to
+    // P_king when computing the shares of [lambda_a * lambda_b].
+    std::size_t total_shares2 = 0;
+    for (std::size_t subset2 = 0; subset2 < (1LL << num_parties_); ++subset2) {
+      if (__builtin_popcount(subset2) != t) {
+        continue;
+      }
+      // The parties that hold both subset and subset2.
+      std::size_t held_by = ((~subset) & (~subset2));
+      // TODO(pranav): Clean up later.
+      bool done = false;
+      for (std::size_t party = 0; party < num_parties_; ++party) {
+        if (party == p_king_) continue;
+        if ((held_by & (1LL << party))) {
+          mup_shares_for_p_king_[party].push_back(
+            std::make_pair(total_shares, total_shares2));
+          done = true;
+          break;
+        }
+      }
+      // TODO(pranav): Clean up later.
+      assert(done);
+      ++total_shares2;
     }
     ++total_shares_;
   }
