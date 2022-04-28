@@ -345,10 +345,8 @@ class ArithmeticBEAVYMULGate : public detail::BasicArithmeticBEAVYBinaryGate<T> 
 
  private:
   BEAVYProvider& beavy_provider_;
-  ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_;
-  std::vector<T> Delta_y_share_;
-  std::unique_ptr<MOTION::IntegerMultiplicationSender<T>> mult_sender_;
-  std::unique_ptr<MOTION::IntegerMultiplicationReceiver<T>> mult_receiver_;
+  std::vector<ENCRYPTO::ReusableFiberFuture<std::vector<T>>> share_future_;
+  std::size_t mul_shares_from_D_;
 };
 
 template <typename T>

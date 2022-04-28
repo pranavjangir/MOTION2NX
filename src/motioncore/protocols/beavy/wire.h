@@ -87,6 +87,8 @@ class ArithmeticBEAVYWire : public NewWire, public ENCRYPTO::enable_wait_setup {
         // Each party will have (n-1 CHOOSE t) private shares.
         secret_share_.resize((1 << num_parties), 0);
 
+        random_shares_.resize((1LL << num_parties), 0);
+
         std::cout << "Share size inside wire : " << secret_share_.size() << " " << public_share_.size() << std::endl;
       }
   MPCProtocol get_protocol() const noexcept override { return MPCProtocol::ArithmeticBEAVY; }
@@ -101,6 +103,8 @@ class ArithmeticBEAVYWire : public NewWire, public ENCRYPTO::enable_wait_setup {
   const std::vector<T>& get_public_share() const { return public_share_; };
   std::vector<T>& get_secret_share() { return secret_share_; };
   const std::vector<T>& get_secret_share() const { return secret_share_; };
+  std::vector<T>& get_random_shares() { return random_shares_; };
+  const std::vector<T>& get_random_shares() const { return random_shares_; };
 
  private:
   using is_enabled_ = ENCRYPTO::is_unsigned_int_t<T>;
@@ -108,6 +112,7 @@ class ArithmeticBEAVYWire : public NewWire, public ENCRYPTO::enable_wait_setup {
   // holds this party shares
   std::vector<T> public_share_;
   std::vector<T> secret_share_;
+  std::vector<T> random_shares_;
 };
 
 template <typename T>

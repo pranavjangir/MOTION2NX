@@ -109,7 +109,7 @@ BEAVYProvider::BEAVYProvider(Communication::CommunicationLayer& communication_la
       // TODO(pranav): Clean up later.
       bool done = false;
       for (std::size_t party = 0; party < num_parties_; ++party) {
-        if (party == p_king_) continue;
+        if (party == p_king_ || ((held_by & (1LL << p_king)) != 0)) continue;
         if ((held_by & (1LL << party))) {
           mup_shares_for_p_king_[party].push_back(
             std::make_pair(total_shares, total_shares2));

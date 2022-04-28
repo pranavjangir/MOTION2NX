@@ -1038,11 +1038,15 @@ ArithmeticBEAVYMULGate<T>::ArithmeticBEAVYMULGate(std::size_t gate_id,
       beavy_provider_(beavy_provider) {
   auto my_id = beavy_provider_.get_my_id();
   auto num_simd = this->input_a_->get_num_simd();
-  share_future_ = beavy_provider_.register_for_ints_message<T>(1 - my_id, this->gate_id_,
-                                                               this->input_a_->get_num_simd());
-  auto& ap = beavy_provider_.get_arith_manager().get_provider(1 - my_id);
-  mult_sender_ = ap.template register_integer_multiplication_send<T>(num_simd);
-  mult_receiver_ = ap.template register_integer_multiplication_receive<T>(num_simd);
+  auto num_parties = beavy_provider_.get_num_parties();
+  share_future_.resize(num_parties);
+  if (my_id == beavy_provider_.get_p_king()) {
+    share_future_ = beavy_provider_.register_for_ints_messages<T>(
+      gate_id_, num_simd);
+  } else if (my_id <= (num_parties / 2)) {
+    share_future_[p_king] = beavy_provider_.register_for_ints_message<T>(
+        p_king, gate_id_, input_->get_num_simd());
+  }
 }
 
 template <typename T>
@@ -1058,40 +1062,50 @@ void ArithmeticBEAVYMULGate<T>::evaluate_setup() {
     }
   }
 
-  auto num_simd = this->input_a_->get_num_simd();
+  auto& r = this->output_->get_random_shares();
+  auto& output_secret_shares = this->output_->get_secret_share();
+  assert(r.size() >= beavy_provider_.get_total_shares());
+  assert(output_secret_shares.size() >= beavy_provider_.get_total_shares());
 
-  this->output_->get_secret_share() = Helpers::RandomVector<T>(num_simd);
+  auto my_id = beavy_provider_.get_my_id();
+  auto p_king = beavy_provider_.get_p_king();
+  auto num_simd = this->input_a_->get_num_simd();
+  std::size_t num_parties = beavy_provider_.get_num_parties();
+  auto& owned_shares = beavy_provider_.get_owned_shares();
+  auto& mul_shares = beavy_provider_.get_mup_shares_for_p_king();
+  // Set the "r" values.
+  for (auto share : owned_shares[my_id]) {
+    r[share] = share + 10;
+    output_secret_shares[share] = -r[share];
+  }
+
   this->output_->set_setup_ready();
+  
 
   this->input_a_->wait_setup();
   this->input_b_->wait_setup();
-  const auto& delta_a_share = this->input_a_->get_secret_share();
-  const auto& delta_b_share = this->input_b_->get_secret_share();
-  const auto& delta_y_share = this->output_->get_secret_share();
 
-  mult_receiver_->set_inputs(delta_a_share);
-  mult_sender_->set_inputs(delta_b_share);
-
-  Delta_y_share_.resize(num_simd);
-  // [Delta_y]_i = [delta_a]_i * [delta_b]_i
-  std::transform(std::begin(delta_a_share), std::end(delta_a_share), std::begin(delta_b_share),
-                 std::begin(Delta_y_share_), std::multiplies{});
-  // [Delta_y]_i += [delta_y]_i
-  std::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_), std::begin(delta_y_share),
-                 std::begin(Delta_y_share_), std::plus{});
-
-  mult_receiver_->compute_outputs();
-  mult_sender_->compute_outputs();
-  // [[delta_a]_i * [delta_b]_(1-i)]_i
-  auto delta_ab_share1 = mult_receiver_->get_outputs();
-  // [[delta_b]_i * [delta_a]_(1-i)]_i
-  auto delta_ab_share2 = mult_sender_->get_outputs();
-  // [Delta_y]_i += [[delta_a]_i * [delta_b]_(1-i)]_i
-  std::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_), std::begin(delta_ab_share1),
-                 std::begin(Delta_y_share_), std::plus{});
-  // [Delta_y]_i += [[delta_b]_i * [delta_a]_(1-i)]_i
-  std::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_), std::begin(delta_ab_share2),
-                 std::begin(Delta_y_share_), std::plus{});
+  auto& input_a_secret_shares = input_a_->get_secret_share();
+  auto& input_b_secret_shares = input_b_->get_secret_share();
+  
+  assert(input_a_secret_shares.size() >= beavy_provider_.get_total_shares());
+  assert(input_b_secret_shares.size() >= beavy_provider_.get_total_shares());
+  if (my_id == p_king) {
+    // recive the shares from parties in D, set the local value.
+    mul_shares_from_D_ = 0;
+    for (std::size_t party = (num_parties/2) + 1; party < num_parties; ++party) {
+      mul_shares_from_D_ += share_future_[party].get()[0];
+    }
+  } else if (my_id > (num_parties/2)) {
+    // If party is in D, then send the requires shares to P_king.
+    std::size_t share_to_send_p_king = 0;
+    if (!mul_shares[my_id].empty()) {
+      for (const auto [i, j] : mul_shares[my_id]) {
+        share_to_send_p_king += input_a_secret_shares[i]*input_b_secret_shares[j];
+      }
+    }
+    beavy_provider_.send_ints_message(p_king, gate_id_, std::vector<T>(1, share_to_send_p_king));
+  }
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
@@ -1112,42 +1126,64 @@ void ArithmeticBEAVYMULGate<T>::evaluate_online() {
     }
   }
 
+  auto& r = this->output_->get_random_shares();
+  auto& output_secret_shares = this->output_->get_secret_share();
+  assert(r.size() >= beavy_provider_.get_total_shares());
+  assert(output_secret_shares.size() >= beavy_provider_.get_total_shares());
+
+  auto my_id = beavy_provider_.get_my_id();
+  auto p_king = beavy_provider_.get_p_king();
   auto num_simd = this->input_a_->get_num_simd();
+  std::size_t num_parties = beavy_provider_.get_num_parties();
+  auto& owned_shares = beavy_provider_.get_owned_shares();
+  auto& shares_for_p_king = beavy_provider_.get_shares_for_p_king();
+  auto& mul_shares = beavy_provider_.get_mup_shares_for_p_king();
+
+
   this->input_a_->wait_online();
   this->input_b_->wait_online();
-  const auto& Delta_a = this->input_a_->get_public_share();
-  const auto& Delta_b = this->input_b_->get_public_share();
-  const auto& delta_a_share = this->input_a_->get_secret_share();
-  const auto& delta_b_share = this->input_b_->get_secret_share();
-  std::vector<T> tmp(num_simd);
 
-  // after setup phase, `Delta_y_share_` contains [delta_y]_i + [delta_ab]_i
+  auto public_a = input_a_->get_public_share()[0];
+  auto public_b = input_b_->get_public_share()[0];
+  auto& secret_a = input_a_->get_secret_share();
+  auto& secret_b = input_b_->get_secret_share();
+  auto& r = output_->get_random_shares();
+  auto& public_share = output_->get_public_share();
+  // PKing to calculate its own part and recieve the other shares.
+  // Others in E to send their parts, and expect something from PKing. (public share)
+  if (my_id == p_king) {
+    std::size_t pub_share = public_a * public_b + mul_shares_from_D_;
+    for (auto share : owned_shares[my_id]) {
+      pub_share -= (public_a * secret_b[share] + public_b * secret_a[share] + r[share]);
+      for (auto share2 : owned_shares[my_id]) {
+        pub_share += secret_a[share] * secret_b[share2];
+      }
+    }
 
-  // [Delta_y]_i -= Delta_a * [delta_b]_i
-  std::transform(std::begin(Delta_a), std::end(Delta_a), std::begin(delta_b_share), std::begin(tmp),
-                 std::multiplies{});
-  std::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_), std::begin(tmp),
-                 std::begin(Delta_y_share_), std::minus{});
+    for (std::size_t party = 0; party <= (num_parties / 2); ++party) {
+      if (party == my_id) continue;
+      pub_share += share_future_[party].get()[0];
+    }
+    public_share[0] = pub_share;
 
-  // [Delta_y]_i -= Delta_b * [delta_a]_i
-  std::transform(std::begin(Delta_b), std::end(Delta_b), std::begin(delta_a_share), std::begin(tmp),
-                 std::multiplies{});
-  std::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_), std::begin(tmp),
-                 std::begin(Delta_y_share_), std::minus{});
+    for (std::size_t party = 0; party <= (num_parties / 2); party++) {
+      if (party == my_id) continue;
+      beavy_provider_.send_ints_message(party, gate_id_, std::vector<T>(1, pub_share));
+    }
+  } else if (my_id <= (num_parties / 2)) {
+    std::size_t share_for_p_king = 0;
+    for (std::size_t share : shares_for_p_king[my_id]) {
+      share_for_p_king -= (public_a * secret_b[share] + public_b * secret_a[share] + r[share]);
+    }
+    for (auto [i, j] : mul_shares[my_id]) {
+      share_for_p_king += secret_a[i] * secret_b[j];
+    }
+    beavy_provider_.send_ints_message(p_king, gate_id_, std::vector<T>(1, share_for_p_king));
 
-  // [Delta_y]_i += Delta_ab (== Delta_a * Delta_b)
-  if (beavy_provider_.is_my_job(this->gate_id_)) {
-    std::transform(std::begin(Delta_a), std::end(Delta_a), std::begin(Delta_b), std::begin(tmp),
-                   std::multiplies{});
-    std::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_), std::begin(tmp),
-                   std::begin(Delta_y_share_), std::plus{});
+    // Wait for the value of Z-r from p_king.
+    public_share[0] = share_future_[p_king].get()[0];
   }
-  // broadcast [Delta_y]_i
-  beavy_provider_.broadcast_ints_message(this->gate_id_, Delta_y_share_);
-  // Delta_y = [Delta_y]_i + [Delta_y]_(1-i)
-  std::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
-                 std::begin(share_future_.get()), std::begin(Delta_y_share_), std::plus{});
-  this->output_->get_public_share() = std::move(Delta_y_share_);
+
   this->output_->set_online_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {

@@ -278,13 +278,16 @@ class BEAVYProvider : public GateFactory,
       const tensor::TensorCP&);
 
  public:
-    const std::size_t get_p_king() { return p_king_; }
-    const std::size_t get_total_shares() { return total_shares_; }
-    const std::vector<std::vector<std::size_t> > get_owned_shares() {
+    const std::size_t get_p_king() const { return p_king_; }
+    const std::size_t get_total_shares() const { return total_shares_; }
+    const std::vector<std::vector<std::size_t> > get_owned_shares() const {
         return owned_shares_;
     }
-    const std::vector<std::vector<std::size_t> > get_shares_for_p_king() {
+    const std::vector<std::vector<std::size_t> > get_shares_for_p_king() const {
         return shares_for_p_king_;
+    }
+    const std::vector<std::vector<std::pair<std::size_t, std::size_t> > > get_mup_shares_for_p_king() const {
+        return mup_shares_for_p_king_;
     }
 
  private:
