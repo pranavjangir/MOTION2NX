@@ -68,3 +68,4 @@ dbg/lib/libgtestd.a
 dbg/lib/libmotion.a
 dbg/src/motioncore/version.cpp
 dbg/src/motioncore/version.cpp.new
+dbg/bin/mpclan_multiplication

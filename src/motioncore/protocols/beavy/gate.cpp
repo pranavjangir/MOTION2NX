@@ -906,11 +906,12 @@ template <typename T>
 BasicArithmeticBEAVYBinaryGate<T>::BasicArithmeticBEAVYBinaryGate(std::size_t gate_id,
                                                                   BEAVYProvider&,
                                                                   ArithmeticBEAVYWireP<T>&& in_a,
-                                                                  ArithmeticBEAVYWireP<T>&& in_b)
+                                                                  ArithmeticBEAVYWireP<T>&& in_b,
+                                                                  std::size_t num_parties)
     : NewGate(gate_id),
       input_a_(std::move(in_a)),
       input_b_(std::move(in_b)),
-      output_(std::make_shared<ArithmeticBEAVYWire<T>>(input_a_->get_num_simd())) {
+      output_(std::make_shared<ArithmeticBEAVYWire<T>>(input_a_->get_num_simd(), num_parties)) {
   if (input_a_->get_num_simd() != input_b_->get_num_simd()) {
     throw std::logic_error("number of SIMD values need to be the same for all wires");
   }
@@ -1034,7 +1035,7 @@ ArithmeticBEAVYMULGate<T>::ArithmeticBEAVYMULGate(std::size_t gate_id,
                                                   ArithmeticBEAVYWireP<T>&& in_a,
                                                   ArithmeticBEAVYWireP<T>&& in_b)
     : detail::BasicArithmeticBEAVYBinaryGate<T>(gate_id, beavy_provider, std::move(in_a),
-                                                std::move(in_b)),
+                                                std::move(in_b), beavy_provider.get_num_parties()),
       beavy_provider_(beavy_provider) {
   auto my_id = beavy_provider_.get_my_id();
   auto num_simd = this->input_a_->get_num_simd();
@@ -1042,10 +1043,10 @@ ArithmeticBEAVYMULGate<T>::ArithmeticBEAVYMULGate(std::size_t gate_id,
   share_future_.resize(num_parties);
   if (my_id == beavy_provider_.get_p_king()) {
     share_future_ = beavy_provider_.register_for_ints_messages<T>(
-      gate_id_, num_simd);
+      gate_id, num_simd);
   } else if (my_id <= (num_parties / 2)) {
-    share_future_[p_king] = beavy_provider_.register_for_ints_message<T>(
-        p_king, gate_id_, input_->get_num_simd());
+    share_future_[beavy_provider_.get_p_king()] = beavy_provider_.register_for_ints_message<T>(
+        beavy_provider_.get_p_king(), gate_id, num_simd);
   }
 }
 
@@ -1064,8 +1065,8 @@ void ArithmeticBEAVYMULGate<T>::evaluate_setup() {
 
   auto& r = this->output_->get_random_shares();
   auto& output_secret_shares = this->output_->get_secret_share();
-  assert(r.size() >= beavy_provider_.get_total_shares());
   assert(output_secret_shares.size() >= beavy_provider_.get_total_shares());
+  assert(r.size() >= beavy_provider_.get_total_shares());
 
   auto my_id = beavy_provider_.get_my_id();
   auto p_king = beavy_provider_.get_p_king();
@@ -1085,8 +1086,8 @@ void ArithmeticBEAVYMULGate<T>::evaluate_setup() {
   this->input_a_->wait_setup();
   this->input_b_->wait_setup();
 
-  auto& input_a_secret_shares = input_a_->get_secret_share();
-  auto& input_b_secret_shares = input_b_->get_secret_share();
+  auto& input_a_secret_shares = this->input_a_->get_secret_share();
+  auto& input_b_secret_shares = this->input_b_->get_secret_share();
   
   assert(input_a_secret_shares.size() >= beavy_provider_.get_total_shares());
   assert(input_b_secret_shares.size() >= beavy_provider_.get_total_shares());
@@ -1104,7 +1105,7 @@ void ArithmeticBEAVYMULGate<T>::evaluate_setup() {
         share_to_send_p_king += input_a_secret_shares[i]*input_b_secret_shares[j];
       }
     }
-    beavy_provider_.send_ints_message(p_king, gate_id_, std::vector<T>(1, share_to_send_p_king));
+    beavy_provider_.send_ints_message(p_king, this->gate_id_, std::vector<T>(1, share_to_send_p_king));
   }
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
@@ -1143,12 +1144,11 @@ void ArithmeticBEAVYMULGate<T>::evaluate_online() {
   this->input_a_->wait_online();
   this->input_b_->wait_online();
 
-  auto public_a = input_a_->get_public_share()[0];
-  auto public_b = input_b_->get_public_share()[0];
-  auto& secret_a = input_a_->get_secret_share();
-  auto& secret_b = input_b_->get_secret_share();
-  auto& r = output_->get_random_shares();
-  auto& public_share = output_->get_public_share();
+  auto public_a = this->input_a_->get_public_share()[0];
+  auto public_b = this->input_b_->get_public_share()[0];
+  auto& secret_a = this->input_a_->get_secret_share();
+  auto& secret_b = this->input_b_->get_secret_share();
+  auto& public_share = this->output_->get_public_share();
   // PKing to calculate its own part and recieve the other shares.
   // Others in E to send their parts, and expect something from PKing. (public share)
   if (my_id == p_king) {
@@ -1168,7 +1168,7 @@ void ArithmeticBEAVYMULGate<T>::evaluate_online() {
 
     for (std::size_t party = 0; party <= (num_parties / 2); party++) {
       if (party == my_id) continue;
-      beavy_provider_.send_ints_message(party, gate_id_, std::vector<T>(1, pub_share));
+      beavy_provider_.send_ints_message(party, this->gate_id_, std::vector<T>(1, pub_share));
     }
   } else if (my_id <= (num_parties / 2)) {
     std::size_t share_for_p_king = 0;
@@ -1178,7 +1178,7 @@ void ArithmeticBEAVYMULGate<T>::evaluate_online() {
     for (auto [i, j] : mul_shares[my_id]) {
       share_for_p_king += secret_a[i] * secret_b[j];
     }
-    beavy_provider_.send_ints_message(p_king, gate_id_, std::vector<T>(1, share_for_p_king));
+    beavy_provider_.send_ints_message(p_king, this->gate_id_, std::vector<T>(1, share_for_p_king));
 
     // Wait for the value of Z-r from p_king.
     public_share[0] = share_future_[p_king].get()[0];

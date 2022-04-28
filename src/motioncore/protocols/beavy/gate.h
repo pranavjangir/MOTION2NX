@@ -271,7 +271,7 @@ template <typename T>
 class BasicArithmeticBEAVYBinaryGate : public NewGate {
  public:
   BasicArithmeticBEAVYBinaryGate(std::size_t gate_id, BEAVYProvider&, ArithmeticBEAVYWireP<T>&&,
-                                 ArithmeticBEAVYWireP<T>&&);
+                                 ArithmeticBEAVYWireP<T>&&, std::size_t num_parties = 2);
   ArithmeticBEAVYWireP<T>& get_output_wire() noexcept { return output_; }
 
  protected:

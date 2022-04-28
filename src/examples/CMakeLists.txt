@@ -9,6 +9,7 @@ add_subdirectory(evaluate_circuit_from_file)
 add_subdirectory(example_template)
 add_subdirectory(millionaires_problem)
 add_subdirectory(mpclan_addition)
+add_subdirectory(mpclan_multiplication)
 add_subdirectory(sha256)
 add_subdirectory(triple_generator)
 

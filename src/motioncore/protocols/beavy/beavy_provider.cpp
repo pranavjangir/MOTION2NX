@@ -106,13 +106,18 @@ BEAVYProvider::BEAVYProvider(Communication::CommunicationLayer& communication_la
       }
       // The parties that hold both subset and subset2.
       std::size_t held_by = ((~subset) & (~subset2));
+      // This pair is already held by p_king, so skip this one.
+      if (((held_by & (1LL << p_king_)) != 0)) {
+        ++total_shares2;
+        continue;
+      }
       // TODO(pranav): Clean up later.
       bool done = false;
       for (std::size_t party = 0; party < num_parties_; ++party) {
-        if (party == p_king_ || ((held_by & (1LL << p_king)) != 0)) continue;
+        if (party == p_king_) continue;
         if ((held_by & (1LL << party))) {
           mup_shares_for_p_king_[party].push_back(
-            std::make_pair(total_shares, total_shares2));
+            std::make_pair(total_shares_, total_shares2));
           done = true;
           break;
         }
