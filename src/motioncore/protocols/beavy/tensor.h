@@ -45,6 +45,9 @@ class ArithmeticBEAVYTensor : public tensor::Tensor, public ENCRYPTO::enable_wai
   using is_enabled_ = ENCRYPTO::is_unsigned_int_t<T>;
   std::vector<T> public_share_;
   std::vector<T> secret_share_;
+  // As secret shares are not random for now, the array holds the
+  // "secret" shares for all data_size_ elements.
+  std::vector<T> common_secret_share_;
 };
 
 template <typename T>
@@ -77,6 +80,9 @@ class BooleanBEAVYTensor : public tensor::Tensor, public ENCRYPTO::enable_wait_s
   std::size_t bit_size_;
   std::vector<ENCRYPTO::BitVector<>> public_share_;
   std::vector<ENCRYPTO::BitVector<>> secret_share_;
+  // As secret shares are not random for now, the array holds the
+  // "secret" shares for all data_size_ elements and all the bits.
+  std::vector<T> common_secret_share_;
 };
 
 using BooleanBEAVYTensorP = std::shared_ptr<BooleanBEAVYTensor>;
