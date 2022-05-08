@@ -49,7 +49,8 @@ namespace detail {
 
 BasicBooleanBEAVYBinaryGate::BasicBooleanBEAVYBinaryGate(std::size_t gate_id,
                                                          BooleanBEAVYWireVector&& in_b,
-                                                         BooleanBEAVYWireVector&& in_a)
+                                                         BooleanBEAVYWireVector&& in_a,
+                                                         std::size_t num_parties)
     : NewGate(gate_id),
       num_wires_(in_a.size()),
       inputs_a_(std::move(in_a)),
@@ -69,7 +70,7 @@ BasicBooleanBEAVYBinaryGate::BasicBooleanBEAVYBinaryGate(std::size_t gate_id,
   }
   outputs_.reserve(num_wires_);
   std::generate_n(std::back_inserter(outputs_), num_wires_,
-                  [num_simd] { return std::make_shared<BooleanBEAVYWire>(num_simd); });
+                  [num_simd] { return std::make_shared<BooleanBEAVYWire>(num_simd, num_parties); });
 }
 
 BasicBooleanBEAVYUnaryGate::BasicBooleanBEAVYUnaryGate(std::size_t gate_id,
@@ -384,10 +385,10 @@ void BooleanBEAVYINVGate::evaluate_online() {
   }
 }
 
-BooleanBEAVYXORGate::BooleanBEAVYXORGate(std::size_t gate_id, BEAVYProvider&,
+BooleanBEAVYXORGate::BooleanBEAVYXORGate(std::size_t gate_id, BEAVYProvider& beavy_provider,
                                          BooleanBEAVYWireVector&& in_a,
                                          BooleanBEAVYWireVector&& in_b)
-    : detail::BasicBooleanBEAVYBinaryGate(gate_id, std::move(in_a), std::move(in_b)) {}
+    : detail::BasicBooleanBEAVYBinaryGate(gate_id, std::move(in_a), std::move(in_b), beavy_provider.get_num_parties()) {}
 
 void BooleanBEAVYXORGate::evaluate_setup() {
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
@@ -396,7 +397,7 @@ void BooleanBEAVYXORGate::evaluate_setup() {
     w_a->wait_setup();
     w_b->wait_setup();
     auto& w_o = outputs_[wire_i];
-    w_o->get_secret_share() = w_a->get_secret_share() ^ w_b->get_secret_share();
+    w_o->get_common_secret_share() = w_a->get_common_secret_share() ^ w_b->get_common_secret_share();
     w_o->set_setup_ready();
   }
 }
@@ -416,7 +417,7 @@ void BooleanBEAVYXORGate::evaluate_online() {
 BooleanBEAVYANDGate::BooleanBEAVYANDGate(std::size_t gate_id, BEAVYProvider& beavy_provider,
                                          BooleanBEAVYWireVector&& in_a,
                                          BooleanBEAVYWireVector&& in_b)
-    : detail::BasicBooleanBEAVYBinaryGate(gate_id, std::move(in_a), std::move(in_b)),
+    : detail::BasicBooleanBEAVYBinaryGate(gate_id, std::move(in_a), std::move(in_b), beavy_provider.get_num_parties()),
       beavy_provider_(beavy_provider),
       ot_sender_(nullptr),
       ot_receiver_(nullptr) {
