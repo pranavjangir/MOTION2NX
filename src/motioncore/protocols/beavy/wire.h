@@ -36,7 +36,12 @@ class BEAVYProvider;
 
 class BooleanBEAVYWire : public NewWire, public ENCRYPTO::enable_wait_setup {
  public:
-  BooleanBEAVYWire(std::size_t num_simd) : NewWire(num_simd) {}
+  BooleanBEAVYWire(std::size_t num_simd, std::size_t num_parties = 2) : NewWire(num_simd) {
+      // Single public value per data instance.
+      public_share_.Resize(num_simd);
+      // We do not need different secret shares for different data instances.
+      common_secret_share_.Resize((1LL << num_parties));
+  }
   MPCProtocol get_protocol() const noexcept override { return MPCProtocol::BooleanBEAVY; }
   std::size_t get_bit_size() const noexcept override { return 1; }
   std::pair<ENCRYPTO::BitVector<>&, ENCRYPTO::BitVector<>&> get_share() {
@@ -45,15 +50,25 @@ class BooleanBEAVYWire : public NewWire, public ENCRYPTO::enable_wait_setup {
   std::pair<const ENCRYPTO::BitVector<>&, const ENCRYPTO::BitVector<>&> get_share() const {
     return {public_share_, secret_share_};
   };
+  std::pair<ENCRYPTO::BitVector<>&, ENCRYPTO::BitVector<>&> get_public_and_secret_share() {
+    return {public_share_, common_secret_share_};
+  };
+  std::pair<const ENCRYPTO::BitVector<>&, const ENCRYPTO::BitVector<>&> get_public_and_secret_share() const {
+    return {public_share_, common_secret_share_};
+  };
   ENCRYPTO::BitVector<>& get_public_share() { return public_share_; };
   const ENCRYPTO::BitVector<>& get_public_share() const { return public_share_; };
   ENCRYPTO::BitVector<>& get_secret_share() { return secret_share_; };
   const ENCRYPTO::BitVector<>& get_secret_share() const { return secret_share_; };
+  ENCRYPTO::BitVector<>& get_common_secret_share() { return common_secret_share_; };
+  const ENCRYPTO::BitVector<>& get_common_secret_share() const { return common_secret_share_; };
 
  private:
   // holds this party shares
   ENCRYPTO::BitVector<> public_share_;
   ENCRYPTO::BitVector<> secret_share_;
+  // Secret share common between all num_simds
+  ENCRYPTO::BitVector<> common_secret_share_;
 };
 
 using BooleanBEAVYWireP = std::shared_ptr<BooleanBEAVYWire>;
