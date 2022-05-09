@@ -82,7 +82,7 @@ class BooleanBEAVYTensor : public tensor::Tensor, public ENCRYPTO::enable_wait_s
   std::vector<ENCRYPTO::BitVector<>> secret_share_;
   // As secret shares are not random for now, the array holds the
   // "secret" shares for all data_size_ elements and all the bits.
-  std::vector<T> common_secret_share_;
+  ENCRYPTO::BitVector<> common_secret_share_;
 };
 
 using BooleanBEAVYTensorP = std::shared_ptr<BooleanBEAVYTensor>;

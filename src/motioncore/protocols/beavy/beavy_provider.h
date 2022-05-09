@@ -206,9 +206,9 @@ class BEAVYProvider : public GateFactory,
   tensor::TensorCP basic_make_convert_boolean_to_arithmetic_beavy_tensor(const tensor::TensorCP);
   tensor::TensorCP make_convert_boolean_to_arithmetic_beavy_tensor(const tensor::TensorCP);
 
-  template <typename T>
-  tensor::TensorCP basic_make_convert_arithmetic_to_boolean_beavy_tensor(const tensor::TensorCP);
-  tensor::TensorCP make_convert_arithmetic_to_boolean_beavy_tensor(const tensor::TensorCP);
+//   template <typename T>
+//   tensor::TensorCP basic_make_convert_arithmetic_to_boolean_beavy_tensor(const tensor::TensorCP);
+//   tensor::TensorCP make_convert_arithmetic_to_boolean_beavy_tensor(const tensor::TensorCP);
 
  private:
   enum class mixed_gate_mode_t { arithmetic, boolean, plain };

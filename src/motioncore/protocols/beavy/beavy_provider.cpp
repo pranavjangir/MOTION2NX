@@ -999,9 +999,10 @@ tensor::TensorCP BEAVYProvider::make_tensor_conversion(MPCProtocol dst_proto,
   auto src_proto = input->get_protocol();
   if (src_proto == MPCProtocol::BooleanBEAVY && dst_proto == MPCProtocol::ArithmeticBEAVY) {
     return make_convert_boolean_to_arithmetic_beavy_tensor(input);
-  } else if (src_proto == MPCProtocol::ArithmeticBEAVY && dst_proto == MPCProtocol::BooleanBEAVY) {
-    return make_convert_arithmetic_to_boolean_beavy_tensor(input);
   }
+  // else if (src_proto == MPCProtocol::ArithmeticBEAVY && dst_proto == MPCProtocol::BooleanBEAVY) {
+  //   return make_convert_arithmetic_to_boolean_beavy_tensor(input);
+  // }
   throw std::invalid_argument(fmt::format("BEAVYProvider: cannot convert tensor from {} to {}",
                                           ToString(src_proto), ToString(dst_proto)));
 }
@@ -1258,37 +1259,37 @@ tensor::TensorCP BEAVYProvider::make_convert_boolean_to_arithmetic_beavy_tensor(
   }
 }
 
-template <typename T>
-tensor::TensorCP BEAVYProvider::basic_make_convert_arithmetic_to_boolean_beavy_tensor(
-    const tensor::TensorCP in) {
-  const auto input_tensor = std::dynamic_pointer_cast<const ArithmeticBEAVYTensor>(in);
-  assert(input_tensor != nullptr);
-  auto gate_id = gate_register_.get_next_gate_id();
-  auto tensor_op =
-      std::make_unique<BooleanToArithmeticBEAVYTensorConversion<T>>(gate_id, *this, input_tensor);
-  auto output = tensor_op->get_output_tensor();
-  gate_register_.register_gate(std::move(tensor_op));
-  return output;
-}
+// template <typename T>
+// tensor::TensorCP BEAVYProvider::basic_make_convert_arithmetic_to_boolean_beavy_tensor(
+//     const tensor::TensorCP in) {
+//   const auto input_tensor = std::dynamic_pointer_cast<const ArithmeticBEAVYTensor>(in);
+//   assert(input_tensor != nullptr);
+//   auto gate_id = gate_register_.get_next_gate_id();
+//   auto tensor_op =
+//       std::make_unique<BooleanToArithmeticBEAVYTensorConversion<T>>(gate_id, *this, input_tensor);
+//   auto output = tensor_op->get_output_tensor();
+//   gate_register_.register_gate(std::move(tensor_op));
+//   return output;
+// }
 
-template tensor::TensorCP BEAVYProvider::basic_make_convert_arithmetic_to_boolean_beavy_tensor<
-    std::uint64_t>(const tensor::TensorCP);
+// template tensor::TensorCP BEAVYProvider::basic_make_convert_arithmetic_to_boolean_beavy_tensor<
+//     std::uint64_t>(const tensor::TensorCP);
 
-tensor::TensorCP BEAVYProvider::make_convert_arithmetic_to_boolean_beavy_tensor(
-    const tensor::TensorCP in) {
-  switch (in->get_bit_size()) {
-    case 32: {
-      return basic_make_convert_arithmetic_to_boolean_beavy_tensor<std::uint32_t>(std::move(in));
-      break;
-    }
-    case 64: {
-      return basic_make_convert_arithmetic_to_boolean_beavy_tensor<std::uint64_t>(std::move(in));
-      break;
-    }
-    default: {
-      throw std::logic_error("unsupported bit size");
-    }
-  }
-}
+// tensor::TensorCP BEAVYProvider::make_convert_arithmetic_to_boolean_beavy_tensor(
+//     const tensor::TensorCP in) {
+//   switch (in->get_bit_size()) {
+//     case 32: {
+//       return basic_make_convert_arithmetic_to_boolean_beavy_tensor<std::uint32_t>(std::move(in));
+//       break;
+//     }
+//     case 64: {
+//       return basic_make_convert_arithmetic_to_boolean_beavy_tensor<std::uint64_t>(std::move(in));
+//       break;
+//     }
+//     default: {
+//       throw std::logic_error("unsupported bit size");
+//     }
+//   }
+// }
 
 }  // namespace MOTION::proto::beavy

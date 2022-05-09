@@ -53,7 +53,7 @@ namespace detail {
 class BasicBooleanBEAVYBinaryGate : public NewGate {
  public:
   BasicBooleanBEAVYBinaryGate(std::size_t gate_id, BooleanBEAVYWireVector&&,
-                              BooleanBEAVYWireVector&&);
+                              BooleanBEAVYWireVector&&, std::size_t num_parties);
   BooleanBEAVYWireVector& get_output_wires() noexcept { return outputs_; }
 
  protected:
@@ -174,12 +174,8 @@ class BooleanBEAVYANDGate : public detail::BasicBooleanBEAVYBinaryGate {
 
  private:
   BEAVYProvider& beavy_provider_;
-  ENCRYPTO::ReusableFiberFuture<ENCRYPTO::BitVector<>> share_future_;
-  ENCRYPTO::BitVector<> delta_a_share_;
-  ENCRYPTO::BitVector<> delta_b_share_;
-  ENCRYPTO::BitVector<> Delta_y_share_;
-  std::unique_ptr<ENCRYPTO::ObliviousTransfer::XCOTBitSender> ot_sender_;
-  std::unique_ptr<ENCRYPTO::ObliviousTransfer::XCOTBitReceiver> ot_receiver_;
+  std::vector<ENCRYPTO::ReusableFiberFuture<ENCRYPTO::BitVector<>>> share_future_;
+  ENCRYPTO::BitVector<> mul_shares_from_D_;
 };
 
 template <typename T>
