@@ -76,7 +76,7 @@ MPCLanBackend::MPCLanBackend(Communication::CommunicationLayer& comm_layer,
       //     comm_layer_, ot_manager_->get_provider(2 - my_id_), run_time_stats_.back(), logger_)),
       beavy_provider_(std::make_unique<proto::beavy::BEAVYProvider>(
           comm_layer_, *gate_register_, *circuit_loader_, *motion_base_provider_, *ot_manager_,
-          *arithmetic_manager_, logger_))
+          *arithmetic_manager_, logger_, this))
       //     ,
       // gmw_provider_(std::make_unique<proto::gmw::GMWProvider>(
       //     comm_layer_, *gate_register_, *circuit_loader_, *motion_base_provider_, *ot_manager_,

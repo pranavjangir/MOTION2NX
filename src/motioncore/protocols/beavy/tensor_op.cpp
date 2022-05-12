@@ -1161,6 +1161,181 @@ void BooleanToArithmeticBEAVYTensorConversion<T>::evaluate_online() {
 template class BooleanToArithmeticBEAVYTensorConversion<std::uint32_t>;
 template class BooleanToArithmeticBEAVYTensorConversion<std::uint64_t>;
 
+template <typename T>
+ArithmeticToBooleanBEAVYTensorConversion<T>::ArithmeticToBooleanBEAVYTensorConversion(
+    std::size_t gate_id, BEAVYProvider& beavy_provider, const ArithmeticBEAVYTensorCP<T> input)
+    : NewGate(gate_id),
+      beavy_provider_(beavy_provider),
+      data_size_(input->get_dimensions().get_data_size()),
+      input_(std::move(input)),
+      output_(std::make_shared<BooleanBEAVYTensor<T>>(input_->get_dimensions(), ENCRYPTO::bit_size_v<T>)),
+      output_public_(std::make_shared<BooleanBEAVYTensor<T>>(input_->get_dimensions(), ENCRYPTO::bit_size_v<T>)),
+      output_random_(std::make_shared<BooleanBEAVYTensor<T>>(input_->get_dimensions(), ENCRYPTO::bit_size_v<T>)) {
+  const auto my_id = beavy_provider_.get_my_id();
+  share_future_ = beavy_provider_.register_for_ints_message<T>(1 - my_id, gate_id_, data_size_);
+
+  // Total steps : 
+  // Generate a random value, both in arithmetic sharing, and in boolean sharing.
+  // Calculate Z-r in public --> change public value to binary --> this is op public
+  // Calculate r in boolean. --> stored in o/p random.
+  // Next step is to run an addition circuit on these two. This should happen here itself.
+
+  // Spawn the depth optimized addition circuit.
+  auto& addition_circuit =
+      beavy_provider_.get_circuit_loader().load_circuit(
+          fmt::format("int_add{}_depth.bristol", ENCRYPTO::bit_size_v<T>),
+          CircuitFormat::Bristol);
+  // Pointer to the parent backend running the show.
+  auto backend = beavy_provider_.get_backend();
+
+  // apply the circuit to the Boolean shares.
+  output_ = backend->make_circuit(addition_circuit, output_public_, output_random_);
+
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = beavy_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: ArithmeticToBooleanBEAVYTensorConversion<T> created", gate_id_));
+    }
+  }
+}
+
+template <typename T>
+ArithmeticToBooleanBEAVYTensorConversion<T>::~ArithmeticToBooleanBEAVYTensorConversion() = default;
+
+template <typename T>
+void ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_setup() {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = beavy_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(fmt::format(
+          "Gate {}: ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_setup start", gate_id_));
+    }
+  }
+
+  output_->get_secret_share() = Helpers::RandomVector<T>(data_size_);
+  output_->set_setup_ready();
+
+  input_->wait_setup();
+  const auto& sshares = input_->get_secret_share();
+  assert(sshares.size() == bit_size_);
+
+  std::vector<T> ot_output;
+  if (ot_sender_ != nullptr) {
+    std::vector<T> correlations(bit_size_ * data_size_);
+#pragma omp parallel for
+    for (std::size_t bit_j = 0; bit_j < bit_size_; ++bit_j) {
+      for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
+        if (sshares[bit_j].Get(int_i)) {
+          correlations[bit_j * data_size_ + int_i] = 1;
+        }
+      }
+    }
+    ot_sender_->SetCorrelations(std::move(correlations));
+    ot_sender_->SendMessages();
+    ot_sender_->ComputeOutputs();
+    ot_output = ot_sender_->GetOutputs();
+#pragma omp parallel for
+    for (std::size_t bit_j = 0; bit_j < bit_size_; ++bit_j) {
+      for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
+        T bit = sshares[bit_j].Get(int_i);
+        ot_output[bit_j * data_size_ + int_i] = bit + 2 * ot_output[bit_j * data_size_ + int_i];
+      }
+    }
+  } else {
+    assert(ot_receiver_ != nullptr);
+    ENCRYPTO::BitVector<> choices;
+    choices.Reserve(Helpers::Convert::BitsToBytes(bit_size_ * data_size_));
+    for (const auto& sshare : sshares) {
+      choices.Append(sshare);
+    }
+    ot_receiver_->SetChoices(std::move(choices));
+    ot_receiver_->SendCorrections();
+    ot_receiver_->ComputeOutputs();
+    ot_output = ot_receiver_->GetOutputs();
+#pragma omp parallel for
+    for (std::size_t bit_j = 0; bit_j < bit_size_; ++bit_j) {
+      for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
+        T bit = sshares[bit_j].Get(int_i);
+        ot_output[bit_j * data_size_ + int_i] = bit - 2 * ot_output[bit_j * data_size_ + int_i];
+      }
+    }
+  }
+  arithmetized_secret_share_ = std::move(ot_output);
+
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = beavy_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(fmt::format(
+          "Gate {}: ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_setup end", gate_id_));
+    }
+  }
+}
+
+template <typename T>
+void ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_online() {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = beavy_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(fmt::format(
+          "Gate {}: ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_online start", gate_id_));
+    }
+  }
+
+  const auto my_id = beavy_provider_.get_my_id();
+  std::vector<T> arithmetized_public_share(bit_size_ * data_size_);
+
+  input_->wait_online();
+  const auto& pshares = input_->get_public_share();
+
+#pragma omp parallel for
+  for (std::size_t bit_j = 0; bit_j < bit_size_; ++bit_j) {
+    for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
+      if (pshares[bit_j].Get(int_i)) {
+        arithmetized_public_share[bit_j * data_size_ + int_i] = 1;
+      }
+    }
+  }
+
+  auto tmp = output_->get_secret_share();
+  if (beavy_provider_.is_my_job(gate_id_)) {
+#pragma omp parallel for
+    for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
+      for (std::size_t bit_j = 0; bit_j < bit_size_; ++bit_j) {
+        const auto p = arithmetized_public_share[bit_j * data_size_ + int_i];
+        const auto s = arithmetized_secret_share_[bit_j * data_size_ + int_i];
+        tmp[int_i] += (p + (1 - 2 * p) * s) << bit_j;
+      }
+    }
+  } else {
+#pragma omp parallel for
+    for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
+      for (std::size_t bit_j = 0; bit_j < bit_size_; ++bit_j) {
+        const auto p = arithmetized_public_share[bit_j * data_size_ + int_i];
+        const auto s = arithmetized_secret_share_[bit_j * data_size_ + int_i];
+        tmp[int_i] += ((1 - 2 * p) * s) << bit_j;
+      }
+    }
+  }
+  beavy_provider_.send_ints_message(1 - my_id, gate_id_, tmp);
+  const auto other_share = share_future_.get();
+  __gnu_parallel::transform(std::begin(tmp), std::end(tmp), std::begin(other_share),
+                            std::begin(tmp), std::plus{});
+  output_->get_public_share() = std::move(tmp);
+  output_->set_online_ready();
+
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = beavy_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(fmt::format(
+          "Gate {}: ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_online end", gate_id_));
+    }
+  }
+}
+
+template class ArithmeticToBooleanBEAVYTensorConversion<std::uint32_t>;
+template class ArithmeticToBooleanBEAVYTensorConversion<std::uint64_t>;
+
 BooleanBEAVYTensorRelu::BooleanBEAVYTensorRelu(std::size_t gate_id, BEAVYProvider& beavy_provider,
                                                const BooleanBEAVYTensorCP input)
     : NewGate(gate_id),

@@ -26,6 +26,7 @@
 #include "tensor.h"
 #include "tensor/tensor_op.h"
 #include "utility/reusable_future.h"
+#include "base/mpclan_backend.h"
 
 namespace ENCRYPTO {
 
@@ -275,6 +276,31 @@ class BooleanToArithmeticBEAVYTensorConversion : public NewGate {
   ENCRYPTO::ReusableFiberFuture<ENCRYPTO::BitVector<>> t_share_future_;
   std::unique_ptr<ENCRYPTO::ObliviousTransfer::ACOTSender<T>> ot_sender_;
   std::unique_ptr<ENCRYPTO::ObliviousTransfer::ACOTReceiver<T>> ot_receiver_;
+  std::vector<T> arithmetized_secret_share_;
+  ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_;
+};
+
+template <typename T>
+class ArithmeticToBooleanBEAVYTensorConversion : public NewGate {
+ public:
+  ArithmeticToBooleanBEAVYTensorConversion(std::size_t gate_id, BEAVYProvider&,
+                                           const ArithmeticBEAVYTensorCP<T> input);
+  ~ArithmeticToBooleanBEAVYTensorConversion();
+  bool need_setup() const noexcept override { return true; }
+  bool need_online() const noexcept override { return true; }
+  void evaluate_setup() override;
+  void evaluate_online() override;
+  BooleanBEAVYTensorCP<T> get_output_tensor() const noexcept { return output_; }
+
+ private:
+  BEAVYProvider& beavy_provider_;
+  static constexpr auto bit_size_ = ENCRYPTO::bit_size_v<T>;
+  const std::size_t data_size_;
+  const ArithmeticBEAVYTensorCP input_;
+  BooleanBEAVYTensorP<T> output_;
+  BooleanBEAVYTensorP<T> output_public_;
+  BooleanBEAVYTensorP<T> output_random_;
+  ENCRYPTO::ReusableFiberFuture<ENCRYPTO::BitVector<>> t_share_future_;
   std::vector<T> arithmetized_secret_share_;
   ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_;
 };

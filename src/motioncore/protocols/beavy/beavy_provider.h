@@ -32,6 +32,7 @@
 #include "utility/bit_vector.h"
 #include "utility/enable_wait.h"
 #include "utility/type_traits.hpp"
+#include "base/mpclan_backend.h"
 
 namespace ENCRYPTO::ObliviousTransfer {
 class OTProviderManager;
@@ -84,7 +85,8 @@ class BEAVYProvider : public GateFactory,
 
   BEAVYProvider(Communication::CommunicationLayer&, GateRegister&, CircuitLoader&,
                 Crypto::MotionBaseProvider&, ENCRYPTO::ObliviousTransfer::OTProviderManager&,
-                ArithmeticProviderManager&, std::shared_ptr<Logger>, bool fake_setup = false);
+                ArithmeticProviderManager&, std::shared_ptr<Logger>, MOTION::MPCLanBackend* mpclan_backend = nullptr,
+                bool fake_setup = false);
   ~BEAVYProvider();
 
   std::string get_provider_name() const noexcept override { return "BEAVYProvider"; }
@@ -206,9 +208,9 @@ class BEAVYProvider : public GateFactory,
   tensor::TensorCP basic_make_convert_boolean_to_arithmetic_beavy_tensor(const tensor::TensorCP);
   tensor::TensorCP make_convert_boolean_to_arithmetic_beavy_tensor(const tensor::TensorCP);
 
-//   template <typename T>
-//   tensor::TensorCP basic_make_convert_arithmetic_to_boolean_beavy_tensor(const tensor::TensorCP);
-//   tensor::TensorCP make_convert_arithmetic_to_boolean_beavy_tensor(const tensor::TensorCP);
+  template <typename T>
+  tensor::TensorCP basic_make_convert_arithmetic_to_boolean_beavy_tensor(const tensor::TensorCP);
+  tensor::TensorCP make_convert_arithmetic_to_boolean_beavy_tensor(const tensor::TensorCP);
 
  private:
   enum class mixed_gate_mode_t { arithmetic, boolean, plain };
@@ -293,6 +295,9 @@ class BEAVYProvider : public GateFactory,
     const std::vector<std::vector<std::pair<std::size_t, std::size_t> > > get_mup_shares_for_p_king() const {
         return mup_shares_for_p_king_;
     }
+    MOTION::MPCLanBackend* get_backend() {
+        return mpclan_backend_;
+    }
 
  private:
   Communication::CommunicationLayer& communication_layer_;
@@ -310,6 +315,7 @@ class BEAVYProvider : public GateFactory,
   std::size_t num_parties_;
   std::size_t next_input_id_;
   std::shared_ptr<Logger> logger_;
+  MOTION::MPCLanBackend* mpclan_backend_;
   bool fake_setup_;
 };
 
