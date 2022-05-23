@@ -65,6 +65,7 @@ class MatrixMultiplicationRHS;
 namespace MOTION::proto::beavy {
 
 class BooleanBEAVYWire;
+using WireVector = std::vector<std::shared_ptr<NewWire>>;
 using BooleanBEAVYWireVector = std::vector<std::shared_ptr<BooleanBEAVYWire>>;
 
 class BEAVYProvider;
@@ -290,19 +291,22 @@ class ArithmeticToBooleanBEAVYTensorConversion : public NewGate {
   bool need_online() const noexcept override { return true; }
   void evaluate_setup() override;
   void evaluate_online() override;
-  BooleanBEAVYTensorCP<T> get_output_tensor() const noexcept { return output_; }
+  BooleanBEAVYTensorCP get_output_tensor() const noexcept { return output_; }
 
  private:
   BEAVYProvider& beavy_provider_;
   static constexpr auto bit_size_ = ENCRYPTO::bit_size_v<T>;
   const std::size_t data_size_;
-  const ArithmeticBEAVYTensorCP input_;
-  BooleanBEAVYTensorP<T> output_;
-  BooleanBEAVYTensorP<T> output_public_;
-  BooleanBEAVYTensorP<T> output_random_;
+  const ArithmeticBEAVYTensorCP<T> input_;
+  BooleanBEAVYTensorP output_;
+  BooleanBEAVYWireVector output_public_;
+  BooleanBEAVYWireVector output_random_;
+  BooleanBEAVYWireVector addition_result_;
   ENCRYPTO::ReusableFiberFuture<ENCRYPTO::BitVector<>> t_share_future_;
+  // `arithmetized_secret_share_` holds the random values in arithmetic form.
+  // This is shared for all data instances / tensor elements.
   std::vector<T> arithmetized_secret_share_;
-  ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_;
+  std::vector<ENCRYPTO::ReusableFiberFuture<std::vector<T>>> share_future_;
 };
 
 class BooleanBEAVYTensorRelu : public NewGate {

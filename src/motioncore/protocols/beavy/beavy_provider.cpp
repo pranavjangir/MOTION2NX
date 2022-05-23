@@ -50,7 +50,8 @@ BEAVYProvider::BEAVYProvider(Communication::CommunicationLayer& communication_la
                              ENCRYPTO::ObliviousTransfer::OTProviderManager& ot_manager,
                              ArithmeticProviderManager& arith_manager,
                              std::shared_ptr<Logger> logger,
-                             MOTION::MPCLanBackend* mpclan_backend, bool fake_setup)
+                             bool fake_setup,
+                             MOTION::MPCLanBackend* mpclan_backend)
     : CommMixin(communication_layer, Communication::MessageType::BEAVYGate, logger),
       communication_layer_(communication_layer),
       gate_register_(gate_register),
@@ -1263,7 +1264,7 @@ tensor::TensorCP BEAVYProvider::make_convert_boolean_to_arithmetic_beavy_tensor(
 template <typename T>
 tensor::TensorCP BEAVYProvider::basic_make_convert_arithmetic_to_boolean_beavy_tensor(
     const tensor::TensorCP in) {
-  const auto input_tensor = std::dynamic_pointer_cast<const ArithmeticBEAVYTensor>(in);
+  const auto input_tensor = std::dynamic_pointer_cast<const ArithmeticBEAVYTensor<T>>(in);
   assert(input_tensor != nullptr);
   auto gate_id = gate_register_.get_next_gate_id();
   auto tensor_op =

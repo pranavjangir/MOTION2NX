@@ -34,12 +34,16 @@ template <typename T>
 class ArithmeticBEAVYTensor : public tensor::Tensor, public ENCRYPTO::enable_wait_setup {
  public:
   using Tensor::Tensor;
+  ArithmeticBEAVYTensor(const tensor::TensorDimensions& dims, std::size_t num_parties = 2)
+      : Tensor(dims), public_share_(dims.get_data_size()), common_secret_share_((1LL << num_parties), 0) {}
   MPCProtocol get_protocol() const noexcept override { return MPCProtocol::ArithmeticBEAVY; }
   std::size_t get_bit_size() const noexcept override { return ENCRYPTO::bit_size_v<T>; }
   std::vector<T>& get_public_share() { return public_share_; };
   const std::vector<T>& get_public_share() const { return public_share_; };
   std::vector<T>& get_secret_share() { return secret_share_; };
   const std::vector<T>& get_secret_share() const { return secret_share_; };
+  std::vector<T>& get_common_secret_share() { return common_secret_share_; };
+  const std::vector<T>& get_common_secret_share() const { return common_secret_share_; };
 
  private:
   using is_enabled_ = ENCRYPTO::is_unsigned_int_t<T>;
@@ -63,8 +67,10 @@ std::ostream& operator<<(std::ostream& os, const ArithmeticBEAVYTensor<T>& w) {
 
 class BooleanBEAVYTensor : public tensor::Tensor, public ENCRYPTO::enable_wait_setup {
  public:
-  BooleanBEAVYTensor(const tensor::TensorDimensions& dims, std::size_t bit_size)
-      : Tensor(dims), bit_size_(bit_size), public_share_(bit_size), secret_share_(bit_size) {}
+  BooleanBEAVYTensor(const tensor::TensorDimensions& dims, std::size_t bit_size, std::size_t num_parties = 2)
+      : Tensor(dims), bit_size_(bit_size), public_share_(bit_size), secret_share_(bit_size) {
+        common_secret_share_.Resize(1LL << num_parties, /*zero_fill=*/true);
+      }
   MPCProtocol get_protocol() const noexcept override { return MPCProtocol::BooleanBEAVY; }
   std::size_t get_bit_size() const noexcept override { return bit_size_; }
   std::vector<ENCRYPTO::BitVector<>>& get_public_share() noexcept { return public_share_; }
@@ -74,6 +80,10 @@ class BooleanBEAVYTensor : public tensor::Tensor, public ENCRYPTO::enable_wait_s
   std::vector<ENCRYPTO::BitVector<>>& get_secret_share() noexcept { return secret_share_; }
   const std::vector<ENCRYPTO::BitVector<>>& get_secret_share() const noexcept {
     return secret_share_;
+  }
+  ENCRYPTO::BitVector<>& get_common_secret_share() noexcept { return common_secret_share_; }
+  const ENCRYPTO::BitVector<>& get_common_secret_share() const noexcept {
+    return common_secret_share_;
   }
 
  private:

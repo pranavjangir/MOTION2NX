@@ -85,8 +85,9 @@ class BEAVYProvider : public GateFactory,
 
   BEAVYProvider(Communication::CommunicationLayer&, GateRegister&, CircuitLoader&,
                 Crypto::MotionBaseProvider&, ENCRYPTO::ObliviousTransfer::OTProviderManager&,
-                ArithmeticProviderManager&, std::shared_ptr<Logger>, MOTION::MPCLanBackend* mpclan_backend = nullptr,
-                bool fake_setup = false);
+                ArithmeticProviderManager&, std::shared_ptr<Logger>,
+                bool fake_setup = false,
+                MOTION::MPCLanBackend* mpclan_backend = nullptr);
   ~BEAVYProvider();
 
   std::string get_provider_name() const noexcept override { return "BEAVYProvider"; }
