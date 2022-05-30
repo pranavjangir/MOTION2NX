@@ -160,6 +160,8 @@ class BooleanBEAVYXORGate : public detail::BasicBooleanBEAVYBinaryGate {
   bool need_online() const noexcept override { return true; }
   void evaluate_setup() override;
   void evaluate_online() override;
+ private:
+  BEAVYProvider& beavy_provider_;
 };
 
 class BooleanBEAVYANDGate : public detail::BasicBooleanBEAVYBinaryGate {

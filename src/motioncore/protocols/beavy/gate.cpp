@@ -388,9 +388,16 @@ void BooleanBEAVYINVGate::evaluate_online() {
 BooleanBEAVYXORGate::BooleanBEAVYXORGate(std::size_t gate_id, BEAVYProvider& beavy_provider,
                                          BooleanBEAVYWireVector&& in_a,
                                          BooleanBEAVYWireVector&& in_b)
-    : detail::BasicBooleanBEAVYBinaryGate(gate_id, std::move(in_a), std::move(in_b), beavy_provider.get_num_parties()) {}
+    : detail::BasicBooleanBEAVYBinaryGate(gate_id, std::move(in_a), std::move(in_b), beavy_provider.get_num_parties()),
+    beavy_provider_(beavy_provider) {}
 
 void BooleanBEAVYXORGate::evaluate_setup() {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = beavy_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(fmt::format("Gate {}: BooleanBEAVYXORGate::evaluate_setup start", gate_id_));
+    }
+  }
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
     const auto& w_a = inputs_a_[wire_i];
     const auto& w_b = inputs_b_[wire_i];
@@ -400,9 +407,22 @@ void BooleanBEAVYXORGate::evaluate_setup() {
     w_o->get_common_secret_share() = w_a->get_common_secret_share() ^ w_b->get_common_secret_share();
     w_o->set_setup_ready();
   }
+  std::cout << "CSS size : " << outputs_[0]->get_common_secret_share().GetSize() << std::endl;
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = beavy_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(fmt::format("Gate {}: BooleanBEAVYXORGate::evaluate_setup end", gate_id_));
+    }
+  }
 }
 
 void BooleanBEAVYXORGate::evaluate_online() {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = beavy_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(fmt::format("Gate {}: BooleanBEAVYXORGate::evaluate_online start", gate_id_));
+    }
+  }
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
     const auto& w_a = inputs_a_[wire_i];
     const auto& w_b = inputs_b_[wire_i];
@@ -411,6 +431,12 @@ void BooleanBEAVYXORGate::evaluate_online() {
     auto& w_o = outputs_[wire_i];
     w_o->get_public_share() = w_a->get_public_share() ^ w_b->get_public_share();
     w_o->set_online_ready();
+  }
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = beavy_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(fmt::format("Gate {}: BooleanBEAVYXORGate::evaluate_online end", gate_id_));
+    }
   }
 }
 
@@ -422,6 +448,7 @@ BooleanBEAVYANDGate::BooleanBEAVYANDGate(std::size_t gate_id, BEAVYProvider& bea
   auto num_bits = count_bits(inputs_a_);
   auto my_id = beavy_provider_.get_my_id();
   auto num_parties = beavy_provider_.get_num_parties();
+  share_future_.resize(num_parties);
 
   if (my_id == beavy_provider_.get_p_king()) {
     share_future_ = beavy_provider_.register_for_bits_messages(
@@ -457,6 +484,8 @@ void BooleanBEAVYANDGate::evaluate_setup() {
     wire_o->set_setup_ready();
   }
 
+  std::cout << "CSS AND GATE size : " << outputs_[0]->get_common_secret_share().GetSize() << std::endl;
+
   auto num_bytes = Helpers::Convert::BitsToBytes(num_wires_ * num_simd);
 
   bool value = false;
@@ -489,7 +518,7 @@ void BooleanBEAVYANDGate::evaluate_setup() {
       mul_shares_from_D_ ^= share_future_[party].get();
     }
   } else if (my_id > (num_parties/2)) {
-    // If party is in D, then send the requires shares to P_king.
+    // If party is in D, then send the required shares to P_king.
     ENCRYPTO::BitVector<> share_to_send_p_king(num_simd * num_wires_, value);
     beavy_provider_.send_bits_message(p_king, this->gate_id_, share_to_send_p_king);
   }
@@ -503,23 +532,35 @@ void BooleanBEAVYANDGate::evaluate_setup() {
 }
 
 void BooleanBEAVYANDGate::evaluate_online() {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = beavy_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(fmt::format("Gate {}: BooleanBEAVYANDGate::evaluate_online start", gate_id_));
+    }
+  }
   auto num_simd = inputs_a_[0]->get_num_simd();
   auto num_bits = num_wires_ * num_simd;
-  ENCRYPTO::BitVector<> Delta_a;
-  ENCRYPTO::BitVector<> Delta_b;
-  Delta_a.Reserve(Helpers::Convert::BitsToBytes(num_bits));
-  Delta_b.Reserve(Helpers::Convert::BitsToBytes(num_bits));
+  auto my_id = beavy_provider_.get_my_id();
+  std::size_t num_parties = beavy_provider_.get_num_parties();
+
+  if (my_id > num_parties/2) {
+    for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+      outputs_[wire_i]->set_online_ready();
+    }
+    return;
+  }
 
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
     const auto& wire_a = inputs_a_[wire_i];
     wire_a->wait_online();
+    std::cout << "Wire public values : \n\n" << wire_a->get_public_share().AsString() << "\n";
     const auto& wire_b = inputs_b_[wire_i];
     wire_b->wait_online();
+    std::cout << wire_b->get_public_share().AsString() << "\n";
   }
+  std::cout << "ANDGATE: Wait for the input wire is over!" << std::endl;
 
-  auto my_id = beavy_provider_.get_my_id();
   auto p_king = beavy_provider_.get_p_king();
-  std::size_t num_parties = beavy_provider_.get_num_parties();
   auto& owned_shares = beavy_provider_.get_owned_shares();
   auto& shares_for_p_king = beavy_provider_.get_shares_for_p_king();
   auto& mul_shares = beavy_provider_.get_mup_shares_for_p_king();
@@ -529,54 +570,92 @@ void BooleanBEAVYANDGate::evaluate_online() {
   share_for_p_king.Reserve(Helpers::Convert::BitsToBytes(num_bits));
   all_public_shares.Reserve(Helpers::Convert::BitsToBytes(num_bits));
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
-    auto public_a = inputs_a_[wire_i]->get_public_share();
-    auto secret_a = inputs_a_[wire_i]->get_common_secret_share();
-    auto public_b = inputs_b_[wire_i]->get_public_share();
-    auto secret_b = inputs_b_[wire_i]->get_common_secret_share();
-    if (my_id <= (num_parties/2)) {
-      ENCRYPTO::BitVector<> wire_i_share_for_p_king(num_simd, 0);
-      for (std::size_t share : shares_for_p_king[my_id]) {
-        ENCRYPTO::BitVector<> secret_a_expanded(num_simd, secret_a.Get(share));
-        ENCRYPTO::BitVector<> secret_b_expanded(num_simd, secret_b.Get(share));
-        assert(secret_a_expanded == secret_b_expanded);
-        wire_i_share_for_p_king ^= ((public_a & secret_b_expanded) ^ (public_b & secret_a_expanded) ^ secret_a_expanded);
-      }
-      share_for_p_king.Append(wire_i_share_for_p_king);
-    } else if (my_id == p_king) {
+    const auto& public_a = inputs_a_[wire_i]->get_public_share();
+    const auto& secret_a = inputs_a_[wire_i]->get_common_secret_share();
+    const auto& public_b = inputs_b_[wire_i]->get_public_share();
+    const auto& secret_b = inputs_b_[wire_i]->get_common_secret_share();
+    outputs_[wire_i]->wait_setup();
+    bool xor_all = false;
+    if (my_id == p_king) {
+      xor_all = ENCRYPTO::BitVector<>::XORReduceBitVector(
+        outputs_[wire_i]->get_common_secret_share());
+      ENCRYPTO::BitVector<> expanded_random_offset(num_simd, xor_all);
       ENCRYPTO::BitVector<> mul_shares_D(num_simd, mul_shares_from_D_.Get(0));
-      ENCRYPTO::BitVector<> public_share = ((public_a & public_b) ^ mul_shares_D);
+      ENCRYPTO::BitVector<> public_share = ((public_a & public_b) ^ mul_shares_D ^ expanded_random_offset);
       for (auto share : owned_shares[my_id]) {
         ENCRYPTO::BitVector<> secret_a_expanded(num_simd, secret_a.Get(share));
         ENCRYPTO::BitVector<> secret_b_expanded(num_simd, secret_b.Get(share));
-        public_share ^= ((public_a & secret_b_expanded) ^ (public_b & secret_a_expanded) ^ secret_a_expanded);
+        public_share ^= ((public_a & secret_b_expanded) ^ (public_b & secret_a_expanded));
         for (auto share2 : owned_shares[my_id]) {
-          public_share ^= (secret_a_expanded & secret_b_expanded);
+          ENCRYPTO::BitVector<> secret_2(num_simd, secret_b.Get(share2));
+          public_share ^= (secret_a_expanded & secret_2);
         }
       }
       all_public_shares.Append(public_share);
-
+      std::cout << all_public_shares.GetSize() << " and the pshare size in loop is : " << public_share.GetSize();
+    } else if (my_id <= (num_parties/2)) {
+      for (std::size_t share : shares_for_p_king[my_id]) {
+        xor_all ^= outputs_[wire_i]->get_common_secret_share().Get(share);
+      }
+      // ENCRYPTO::BitVector<> expanded_random_offset(num_simd, xor_all);
+      ENCRYPTO::BitVector<> wire_i_share_for_p_king(num_simd, xor_all);
+      for (std::size_t share : shares_for_p_king[my_id]) {
+        ENCRYPTO::BitVector<> secret_a_expanded(num_simd, secret_a.Get(share));
+        ENCRYPTO::BitVector<> secret_b_expanded(num_simd, secret_b.Get(share));
+        // assert(secret_a_expanded == secret_b_expanded);
+        wire_i_share_for_p_king ^= ((public_a & secret_b_expanded) ^ (public_b & secret_a_expanded));
+      }
+      for (const auto [i, j] : mul_shares[my_id]) {
+        ENCRYPTO::BitVector<> secret_a_expanded(num_simd, secret_a.Get(i));
+        ENCRYPTO::BitVector<> secret_b_expanded(num_simd, secret_b.Get(j));
+        wire_i_share_for_p_king ^= (secret_a_expanded & secret_b_expanded);
+      }
+      share_for_p_king.Append(wire_i_share_for_p_king);
     }
   }
+  if (my_id <= (num_parties / 2) && my_id != p_king) {
+    assert(share_for_p_king.GetSize() == count_bits(inputs_a_));
+    beavy_provider_.send_bits_message(p_king, this->gate_id_, share_for_p_king);
+  }
 
+  std::cout << "ANDGATE:Online Preprocessing done! " << "num_simd : " << num_simd << std::endl;
+  std::cout << "all_pub_share size initial == " << all_public_shares.GetSize() << std::endl;
   // if p king, then get all the responses.., merge them all
   if (my_id == p_king) {
     for (std::size_t party = 0; party <= (num_parties / 2); ++party) {
       if (my_id == party) continue;
-      all_public_shares ^= share_future_[party].get();
+      const auto other_party_public_share = share_future_[party].get();
+      std::cout <<"The data p_king gets from other party : "<< other_party_public_share.GetSize() << std::endl;
+      all_public_shares ^= other_party_public_share;
+      std::cout << "all_pub_share size LOOP == " << all_public_shares.GetSize() << std::endl;
+      std::cout << "Got share from partyXYZ" << std::endl;
     }
     for (std::size_t party = 0; party <= (num_parties / 2); party++) {
       if (party == my_id) continue;
       beavy_provider_.send_bits_message(party, this->gate_id_, all_public_shares);
+      std::cout << "Sent share to partyXYZ" << std::endl;
     }
+    std::cout << "all_pub_share size pking final == " << all_public_shares.GetSize() << std::endl;
   } else if (my_id <= (num_parties / 2)) {
     all_public_shares = share_future_[p_king].get();
+    std::cout << "all_pub_share size == " << all_public_shares.GetSize() << std::endl;
+    std::cout << "Got share from the kingXYZ" << std::endl;
   }
 
+  std::cout << "Finally here!!" << std::endl;
   // distribute data among wires
+  std::cout << "all_pub_share size final == " << all_public_shares.GetSize() << std::endl;
+  assert(all_public_shares.GetSize() == num_wires_ * num_simd);
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
     auto& wire_o = outputs_[wire_i];
     wire_o->get_public_share() = all_public_shares.Subset(wire_i * num_simd, (wire_i + 1) * num_simd);
     wire_o->set_online_ready();
+  }
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = beavy_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(fmt::format("Gate {}: BooleanBEAVYANDGate::evaluate_online end", gate_id_));
+    }
   }
 }
 
