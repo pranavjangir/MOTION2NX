@@ -407,7 +407,6 @@ void BooleanBEAVYXORGate::evaluate_setup() {
     w_o->get_common_secret_share() = w_a->get_common_secret_share() ^ w_b->get_common_secret_share();
     w_o->set_setup_ready();
   }
-  std::cout << "CSS size : " << outputs_[0]->get_common_secret_share().GetSize() << std::endl;
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
     if (logger) {
@@ -484,8 +483,6 @@ void BooleanBEAVYANDGate::evaluate_setup() {
     wire_o->set_setup_ready();
   }
 
-  std::cout << "CSS AND GATE size : " << outputs_[0]->get_common_secret_share().GetSize() << std::endl;
-
   auto num_bytes = Helpers::Convert::BitsToBytes(num_wires_ * num_simd);
 
   bool value = false;
@@ -553,12 +550,9 @@ void BooleanBEAVYANDGate::evaluate_online() {
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
     const auto& wire_a = inputs_a_[wire_i];
     wire_a->wait_online();
-    std::cout << "Wire public values : \n\n" << wire_a->get_public_share().AsString() << "\n";
     const auto& wire_b = inputs_b_[wire_i];
     wire_b->wait_online();
-    std::cout << wire_b->get_public_share().AsString() << "\n";
   }
-  std::cout << "ANDGATE: Wait for the input wire is over!" << std::endl;
 
   auto p_king = beavy_provider_.get_p_king();
   auto& owned_shares = beavy_provider_.get_owned_shares();
@@ -592,7 +586,6 @@ void BooleanBEAVYANDGate::evaluate_online() {
         }
       }
       all_public_shares.Append(public_share);
-      std::cout << all_public_shares.GetSize() << " and the pshare size in loop is : " << public_share.GetSize();
     } else if (my_id <= (num_parties/2)) {
       for (std::size_t share : shares_for_p_king[my_id]) {
         xor_all ^= outputs_[wire_i]->get_common_secret_share().Get(share);
@@ -618,33 +611,22 @@ void BooleanBEAVYANDGate::evaluate_online() {
     beavy_provider_.send_bits_message(p_king, this->gate_id_, share_for_p_king);
   }
 
-  std::cout << "ANDGATE:Online Preprocessing done! " << "num_simd : " << num_simd << std::endl;
-  std::cout << "all_pub_share size initial == " << all_public_shares.GetSize() << std::endl;
   // if p king, then get all the responses.., merge them all
   if (my_id == p_king) {
     for (std::size_t party = 0; party <= (num_parties / 2); ++party) {
       if (my_id == party) continue;
       const auto other_party_public_share = share_future_[party].get();
-      std::cout <<"The data p_king gets from other party : "<< other_party_public_share.GetSize() << std::endl;
       all_public_shares ^= other_party_public_share;
-      std::cout << "all_pub_share size LOOP == " << all_public_shares.GetSize() << std::endl;
-      std::cout << "Got share from partyXYZ" << std::endl;
     }
     for (std::size_t party = 0; party <= (num_parties / 2); party++) {
       if (party == my_id) continue;
       beavy_provider_.send_bits_message(party, this->gate_id_, all_public_shares);
-      std::cout << "Sent share to partyXYZ" << std::endl;
     }
-    std::cout << "all_pub_share size pking final == " << all_public_shares.GetSize() << std::endl;
   } else if (my_id <= (num_parties / 2)) {
     all_public_shares = share_future_[p_king].get();
-    std::cout << "all_pub_share size == " << all_public_shares.GetSize() << std::endl;
-    std::cout << "Got share from the kingXYZ" << std::endl;
   }
 
-  std::cout << "Finally here!!" << std::endl;
   // distribute data among wires
-  std::cout << "all_pub_share size final == " << all_public_shares.GetSize() << std::endl;
   assert(all_public_shares.GetSize() == num_wires_ * num_simd);
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
     auto& wire_o = outputs_[wire_i];
@@ -687,20 +669,6 @@ void ArithmeticBEAVYInputGateSender<T>::evaluate_setup() {
   auto& mbp = beavy_provider_.get_motion_base_provider();
   auto& my_secret_share = output_->get_secret_share();
   auto& my_public_share = output_->get_public_share();
-  // my_secret_share = Helpers::RandomVector<T>(num_simd_);
-  // output_->set_setup_ready();
-  // my_public_share = my_secret_share;
-  // for (std::size_t party_id = 0; party_id < num_parties; ++party_id) {
-  //   if (party_id == my_id) {
-  //     continue;
-  //   }
-  //   auto& rng = mbp.get_my_randomness_generator(party_id);
-  //   std::transform(std::begin(my_public_share), std::end(my_public_share),
-  //                  std::begin(rng.GetUnsigned<T>(input_id_, num_simd_)),
-  //                  std::begin(my_public_share), std::plus{});
-  // }
-  std::cout << "Share size inside gate : " << my_secret_share.size() << " " << my_public_share.size() << std::endl;
-  std::cout << "Total shares : " << beavy_provider_.get_total_shares() << std::endl;
   assert(my_secret_share.size() >= beavy_provider_.get_total_shares());
 
   my_public_share[0] = 0;
@@ -799,18 +767,13 @@ void ArithmeticBEAVYInputGateReceiver<T>::evaluate_setup() {
 
   auto& my_secret_share = output_->get_secret_share();
   auto& my_public_share = output_->get_public_share();
-  std::cout << "Share size inside gate : " << my_secret_share.size() << " " << my_public_share.size() << std::endl;
-  std::cout << "Total shares : " << beavy_provider_.get_total_shares() << std::endl;
   assert(my_secret_share.size() >= beavy_provider_.get_total_shares());
 
   my_public_share[0] = 0;
   std::size_t my_id = beavy_provider_.get_my_id();
   assert(my_id < beavy_provider_.get_num_parties());
-  std::cout << "my-id : " << my_id << std::endl;
   
   const auto& owned_shares = beavy_provider_.get_owned_shares();
-  std::cout << "owned shares size : " << owned_shares.size() << std::endl;
-  std::cout << "owned shares my id size : " << owned_shares[my_id].size() << std::endl;
   for (std::size_t share_indx : owned_shares[my_id]) {
     my_secret_share[share_indx] = share_indx + 10;
   }
@@ -907,12 +870,9 @@ void ArithmeticBEAVYOutputGate<T>::evaluate_setup() {
   std::size_t t = beavy_provider_.get_num_parties() / 2;
   std::size_t p_king = beavy_provider_.get_p_king();
 
-  std::cout << "Reconstruction offline happening: Gate id: "  << gate_id_ << " " << my_id << " " << p_king << " " << t << std::endl;
   if (output_owner_ != my_id) {
     input_->wait_setup();
     auto my_secret_share = input_->get_secret_share();
-    std::cout << "Share size inside gate : " << my_secret_share.size() << std::endl;
-    std::cout << "Total shares : " << beavy_provider_.get_total_shares() << std::endl;
     assert(my_secret_share.size() >= beavy_provider_.get_total_shares());
     if (output_owner_ == ALL_PARTIES) {
 
@@ -969,16 +929,9 @@ void ArithmeticBEAVYOutputGate<T>::evaluate_online() {
   std::size_t p_king = beavy_provider_.get_p_king();
   std::size_t t = beavy_provider_.get_num_parties() / 2;
 
-  std::cout << "Reconstruction online happening: Gate id: "  << gate_id_ << " " << my_id << " " << p_king << " " << t << std::endl;
   if (output_owner_ == ALL_PARTIES || output_owner_ == my_id) {
     input_->wait_setup();
-    // auto my_secret_share = input_->get_secret_share();
-    // const auto other_secret_share = share_future_.get();
-    // std::transform(std::begin(my_secret_share), std::end(my_secret_share),
-    //                std::begin(other_secret_share), std::begin(my_secret_share), std::plus{});
     input_->wait_online();
-    // std::transform(std::begin(input_->get_public_share()), std::end(input_->get_public_share()),
-    //                std::begin(my_secret_share), std::begin(my_secret_share), std::minus{});
     if (my_id != p_king) {
       // Recieve the broadcast from p_king.
       // Set the output promise.
