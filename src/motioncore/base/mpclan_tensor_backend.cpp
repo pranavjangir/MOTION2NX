@@ -70,13 +70,6 @@ MPCLanTensorBackend::MPCLanTensorBackend(Communication::CommunicationLayer& comm
           logger_)),
       arithmetic_manager_(
           std::make_unique<ArithmeticProviderManager>(comm_layer_, *ot_manager_, logger_)),
-      linalg_triple_provider_(fake_triples ? (std::dynamic_pointer_cast<LinAlgTripleProvider>(
-                                                 std::make_shared<FakeLinAlgTripleProvider>()))
-                                           : (std::dynamic_pointer_cast<LinAlgTripleProvider>(
-                                                 std::make_shared<LinAlgTriplesFromAP>(
-                                                     arithmetic_manager_->get_provider(1 - my_id_),
-                                                     ot_manager_->get_provider(1 - my_id_),
-                                                     run_time_stats_.back(), logger_)))),
       mt_provider_(std::make_unique<MTProviderFromOTs>(my_id_, comm_layer_.get_num_parties(), true,
                                                        *arithmetic_manager_, *ot_manager_,
                                                        run_time_stats_.back(), logger_)),
@@ -84,7 +77,7 @@ MPCLanTensorBackend::MPCLanTensorBackend(Communication::CommunicationLayer& comm
                                                        run_time_stats_.back(), logger_)),
       beavy_provider_(std::make_unique<proto::beavy::BEAVYProvider>(
           comm_layer_, *gate_register_, *circuit_loader_, *motion_base_provider_, *ot_manager_,
-          *arithmetic_manager_, logger_, fake_triples)) {
+          *arithmetic_manager_, logger_, fake_triples, this)) {
   tensor_op_factories_.emplace(MPCProtocol::ArithmeticBEAVY, *beavy_provider_);
   tensor_op_factories_.emplace(MPCProtocol::BooleanBEAVY, *beavy_provider_);
   comm_layer_.start();
@@ -100,7 +93,6 @@ void MPCLanTensorBackend::run_preprocessing() {
   mt_provider_->PreSetup();
   sp_provider_->PreSetup();
   ot_manager_->run_setup();
-  linalg_triple_provider_->setup();
   mt_provider_->Setup();
   sp_provider_->Setup();
   beavy_provider_->setup();

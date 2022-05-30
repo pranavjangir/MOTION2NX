@@ -104,7 +104,6 @@ class MPCLanTensorBackend : public tensor::NetworkBuilder {
   std::unique_ptr<BaseOTProvider> base_ot_provider_;
   std::unique_ptr<ENCRYPTO::ObliviousTransfer::OTProviderManager> ot_manager_;
   std::unique_ptr<ArithmeticProviderManager> arithmetic_manager_;
-  std::shared_ptr<LinAlgTripleProvider> linalg_triple_provider_;
   std::unique_ptr<MTProvider> mt_provider_;
   std::unique_ptr<SPProvider> sp_provider_;
 
