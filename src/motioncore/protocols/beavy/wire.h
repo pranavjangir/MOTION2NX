@@ -40,7 +40,7 @@ class BooleanBEAVYWire : public NewWire, public ENCRYPTO::enable_wait_setup {
       // Single public value per data instance.
       public_share_.Resize(num_simd);
       // We do not need different secret shares for different data instances.
-      common_secret_share_.Resize((1LL << num_parties));
+      common_secret_share_.Resize((1LL << num_parties), /*zero_fill=*/true);
   }
   MPCProtocol get_protocol() const noexcept override { return MPCProtocol::BooleanBEAVY; }
   std::size_t get_bit_size() const noexcept override { return 1; }
