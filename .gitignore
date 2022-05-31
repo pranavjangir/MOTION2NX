@@ -69,3 +69,5 @@ dbg/lib/libmotion.a
 dbg/src/motioncore/version.cpp
 dbg/src/motioncore/version.cpp.new
 dbg/bin/mpclan_multiplication
+dbg/bin/a_to_b_conversion
+dbg/bin/mpclan_and
