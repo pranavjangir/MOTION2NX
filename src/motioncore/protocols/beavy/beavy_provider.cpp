@@ -51,7 +51,7 @@ BEAVYProvider::BEAVYProvider(Communication::CommunicationLayer& communication_la
                              ArithmeticProviderManager& arith_manager,
                              std::shared_ptr<Logger> logger,
                              bool fake_setup,
-                             MOTION::MPCLanBackend* mpclan_backend)
+                             MOTION::MPCLanTensorBackend* mpclan_backend)
     : CommMixin(communication_layer, Communication::MessageType::BEAVYGate, logger),
       communication_layer_(communication_layer),
       gate_register_(gate_register),
@@ -81,7 +81,7 @@ BEAVYProvider::BEAVYProvider(Communication::CommunicationLayer& communication_la
   shares_for_p_king_.resize(num_parties_);
   mup_shares_for_p_king_.resize(num_parties_);
   total_shares_ = 0;
-  // TODO: Make this step more optimized, instead of looping over all subsets.
+  // TODO(pranav): Make this step more optimized, instead of looping over all subsets.
   for (std::size_t subset = 1; subset < (1LL << num_parties_); ++subset) {
     if (__builtin_popcount(subset) != t) {
       continue;
@@ -154,6 +154,13 @@ std::size_t BEAVYProvider::get_next_input_id(std::size_t num_inputs) noexcept {
   auto next_id = next_input_id_;
   next_input_id_ += num_inputs;
   return next_id;
+}
+
+void BEAVYProvider::insert_external_gates(std::vector<std::unique_ptr<NewGate>>& gates) {
+  std::size_t num_gates = gates.size();
+  for (std::size_t i = 0; i < num_gates; ++i) {
+      gate_register_.register_gate(std::move(gates[i]));
+  }
 }
 
 static BooleanBEAVYWireVector cast_wires(std::vector<std::shared_ptr<NewWire>> wires) {
@@ -1003,6 +1010,7 @@ tensor::TensorCP BEAVYProvider::make_tensor_conversion(MPCProtocol dst_proto,
   if (src_proto == MPCProtocol::BooleanBEAVY && dst_proto == MPCProtocol::ArithmeticBEAVY) {
     return make_convert_boolean_to_arithmetic_beavy_tensor(input);
   } else if (src_proto == MPCProtocol::ArithmeticBEAVY && dst_proto == MPCProtocol::BooleanBEAVY) {
+    std::cout << "Entering here! Very important!" << std::endl;
     return make_convert_arithmetic_to_boolean_beavy_tensor(input);
   }
   throw std::invalid_argument(fmt::format("BEAVYProvider: cannot convert tensor from {} to {}",
@@ -1285,6 +1293,7 @@ tensor::TensorCP BEAVYProvider::make_convert_arithmetic_to_boolean_beavy_tensor(
       break;
     }
     case 64: {
+      std::cout << "Bit size is 64!" << std::endl;
       return basic_make_convert_arithmetic_to_boolean_beavy_tensor<std::uint64_t>(std::move(in));
       break;
     }

@@ -32,7 +32,7 @@
 #include "utility/bit_vector.h"
 #include "utility/enable_wait.h"
 #include "utility/type_traits.hpp"
-#include "base/mpclan_backend.h"
+#include "base/mpclan_tensor_backend.h"
 
 namespace ENCRYPTO::ObliviousTransfer {
 class OTProviderManager;
@@ -87,7 +87,7 @@ class BEAVYProvider : public GateFactory,
                 Crypto::MotionBaseProvider&, ENCRYPTO::ObliviousTransfer::OTProviderManager&,
                 ArithmeticProviderManager&, std::shared_ptr<Logger>,
                 bool fake_setup = false,
-                MOTION::MPCLanBackend* mpclan_backend = nullptr);
+                MOTION::MPCLanTensorBackend* mpclan_backend = nullptr);
   ~BEAVYProvider();
 
   std::string get_provider_name() const noexcept override { return "BEAVYProvider"; }
@@ -105,6 +105,8 @@ class BEAVYProvider : public GateFactory,
   std::size_t get_next_input_id(std::size_t num_inputs) noexcept;
 
   bool get_fake_setup() const noexcept { return fake_setup_; }
+
+  void insert_external_gates(std::vector<std::unique_ptr<NewGate>>& gates);
 
   // Implementation of GateFactors interface
 
@@ -296,7 +298,7 @@ class BEAVYProvider : public GateFactory,
     const std::vector<std::vector<std::pair<std::size_t, std::size_t> > > get_mup_shares_for_p_king() const {
         return mup_shares_for_p_king_;
     }
-    MOTION::MPCLanBackend* get_backend() {
+    MOTION::MPCLanTensorBackend* get_backend() {
         return mpclan_backend_;
     }
 
@@ -316,7 +318,7 @@ class BEAVYProvider : public GateFactory,
   std::size_t num_parties_;
   std::size_t next_input_id_;
   std::shared_ptr<Logger> logger_;
-  MOTION::MPCLanBackend* mpclan_backend_;
+  MOTION::MPCLanTensorBackend* mpclan_backend_;
   bool fake_setup_;
 };
 
