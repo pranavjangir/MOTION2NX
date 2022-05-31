@@ -11,6 +11,7 @@ add_library(motion
         base/register.cpp
         base/two_party_backend.cpp
         base/mpclan_backend.cpp
+        base/mpclan_tensor_backend.cpp
         base/two_party_tensor_backend.cpp
         communication/base_ot_message.cpp
         communication/bmr_message.cpp
