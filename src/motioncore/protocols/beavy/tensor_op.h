@@ -290,7 +290,9 @@ class ArithmeticToBooleanBEAVYTensorConversion : public NewGate {
   bool need_setup() const noexcept override { return true; }
   bool need_online() const noexcept override { return true; }
   void evaluate_setup() override;
+  void evaluate_setup_with_context(ExecutionContext&) override;
   void evaluate_online() override;
+  void evaluate_online_with_context(ExecutionContext&) override;
   BooleanBEAVYTensorCP get_output_tensor() const noexcept { return output_; }
 
  private:
@@ -307,6 +309,7 @@ class ArithmeticToBooleanBEAVYTensorConversion : public NewGate {
   // This is shared for all data instances / tensor elements.
   std::vector<T> arithmetized_secret_share_;
   std::vector<ENCRYPTO::ReusableFiberFuture<std::vector<T>>> share_future_;
+  std::vector<std::unique_ptr<NewGate>> gates_;
 };
 
 class BooleanBEAVYTensorRelu : public NewGate {
