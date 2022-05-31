@@ -68,8 +68,11 @@ std::ostream& operator<<(std::ostream& os, const ArithmeticBEAVYTensor<T>& w) {
 class BooleanBEAVYTensor : public tensor::Tensor, public ENCRYPTO::enable_wait_setup {
  public:
   BooleanBEAVYTensor(const tensor::TensorDimensions& dims, std::size_t bit_size, std::size_t num_parties = 2)
-      : Tensor(dims), bit_size_(bit_size), public_share_(bit_size), secret_share_(bit_size) {
-        common_secret_share_.Resize(1LL << num_parties, /*zero_fill=*/true);
+      : Tensor(dims), bit_size_(bit_size), public_share_(bit_size), secret_share_(bit_size), 
+      common_secret_share_(bit_size) {
+        for (std::size_t bit = 0; bit < bit_size; ++bit) {
+          common_secret_share_[bit].Resize(1LL << num_parties);
+        }
       }
   MPCProtocol get_protocol() const noexcept override { return MPCProtocol::BooleanBEAVY; }
   std::size_t get_bit_size() const noexcept override { return bit_size_; }
@@ -81,8 +84,8 @@ class BooleanBEAVYTensor : public tensor::Tensor, public ENCRYPTO::enable_wait_s
   const std::vector<ENCRYPTO::BitVector<>>& get_secret_share() const noexcept {
     return secret_share_;
   }
-  ENCRYPTO::BitVector<>& get_common_secret_share() noexcept { return common_secret_share_; }
-  const ENCRYPTO::BitVector<>& get_common_secret_share() const noexcept {
+  std::vector<ENCRYPTO::BitVector<>>& get_common_secret_share() noexcept { return common_secret_share_; }
+  const std::vector<ENCRYPTO::BitVector<>>& get_common_secret_share() const noexcept {
     return common_secret_share_;
   }
 
@@ -92,7 +95,7 @@ class BooleanBEAVYTensor : public tensor::Tensor, public ENCRYPTO::enable_wait_s
   std::vector<ENCRYPTO::BitVector<>> secret_share_;
   // As secret shares are not random for now, the array holds the
   // "secret" shares for all data_size_ elements and all the bits.
-  ENCRYPTO::BitVector<> common_secret_share_;
+  std::vector<ENCRYPTO::BitVector<>> common_secret_share_;
 };
 
 using BooleanBEAVYTensorP = std::shared_ptr<BooleanBEAVYTensor>;
