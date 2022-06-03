@@ -485,7 +485,7 @@ void BooleanBEAVYANDGate::evaluate_setup() {
 
   auto num_bytes = Helpers::Convert::BitsToBytes(num_wires_ * num_simd);
 
-  bool value = false;
+  ENCRYPTO::BitVector<> share_to_send_p_king;
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
     const auto& wire_a = inputs_a_[wire_i];
     const auto& wire_b = inputs_b_[wire_i];
@@ -501,10 +501,9 @@ void BooleanBEAVYANDGate::evaluate_setup() {
           value_for_wire ^= (input_a_secret_shares.Get(i) & input_b_secret_shares.Get(j));
         }
       }
-      // Because of the way we generate common randomness, the `value_for_wire`
-      // should be the same for all the wires.
-      assert(wire_i == 0 || value == value_for_wire);
-      value = value_for_wire;
+      
+      ENCRYPTO::BitVector<> bitvector_for_wire(num_simd, value_for_wire);
+      share_to_send_p_king.Append(bitvector_for_wire);
     }
   }
 
@@ -516,7 +515,6 @@ void BooleanBEAVYANDGate::evaluate_setup() {
     }
   } else if (my_id > (num_parties/2)) {
     // If party is in D, then send the required shares to P_king.
-    ENCRYPTO::BitVector<> share_to_send_p_king(num_simd * num_wires_, value);
     beavy_provider_.send_bits_message(p_king, this->gate_id_, share_to_send_p_king);
   }
 
@@ -574,7 +572,7 @@ void BooleanBEAVYANDGate::evaluate_online() {
       xor_all = ENCRYPTO::BitVector<>::XORReduceBitVector(
         outputs_[wire_i]->get_common_secret_share());
       ENCRYPTO::BitVector<> expanded_random_offset(num_simd, xor_all);
-      ENCRYPTO::BitVector<> mul_shares_D(num_simd, mul_shares_from_D_.Get(0));
+      ENCRYPTO::BitVector<> mul_shares_D = mul_shares_from_D_.Subset(wire_i * num_simd, (wire_i + 1) * num_simd);
       ENCRYPTO::BitVector<> public_share = ((public_a & public_b) ^ mul_shares_D ^ expanded_random_offset);
       for (auto share : owned_shares[my_id]) {
         ENCRYPTO::BitVector<> secret_a_expanded(num_simd, secret_a.Get(share));
