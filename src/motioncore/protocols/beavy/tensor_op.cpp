@@ -1276,6 +1276,16 @@ void ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_setup_with_context(Ex
     exec_ctx.fpool_->post([&] { gate->evaluate_setup(); });
   }
 
+  auto& common_secret_share = output_->get_common_secret_share();
+#pragma omp parallel for
+    for (std::size_t bit_pos = 0; bit_pos < bit_size; ++bit_pos) {
+      addition_result_[bit_pos]->wait_setup();
+      // Copy the wire vector values to the tensor.
+      common_secret_share[bit_pos] = addition_result_[bit_pos]->get_common_secret_share();
+    }
+  output_->set_setup_ready();
+
+
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
     if (logger) {
@@ -1311,11 +1321,15 @@ void ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_online_with_context(E
   if (my_id == p_king) {
     Z_minus_r = input_->get_public_share();
     std::size_t arithmetic_r_shares = 0;
+    const auto& input_ss = input_->get_common_secret_share();
+    std::size_t input_ss_pking = 0;
     for (const auto share : owned_shares[my_id]) {
       arithmetic_r_shares += arithmetized_secret_share_[share];
+      input_ss_pking += input_ss[share];
     }
     __gnu_parallel::transform(std::begin(Z_minus_r), std::end(Z_minus_r),
-                            std::begin(Z_minus_r), std::bind2nd(std::minus<T>(), arithmetic_r_shares));
+                            std::begin(Z_minus_r), std::bind2nd(std::minus<T>(),
+                             arithmetic_r_shares + input_ss_pking));
     for (int party = 0; party <= (num_parties / 2); ++party) {
       if (party == my_id) continue;
       const auto& party_share = share_future_[party].get();
@@ -1374,7 +1388,7 @@ void ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_online_with_context(E
 
     assert(addition_result_.size() == bit_size);
 
-    auto& common_secret_share = output_->get_common_secret_share();
+    // auto& common_secret_share = output_->get_common_secret_share();
     auto& public_share = output_->get_public_share();
     // auto& secret_share = output_->get_secret_share();
 #pragma omp parallel for
@@ -1382,13 +1396,13 @@ void ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_online_with_context(E
       addition_result_[bit_pos]->wait_online();
       // Copy the wire vector values to the tensor.
       public_share[bit_pos] = addition_result_[bit_pos]->get_public_share();
-      common_secret_share[bit_pos] = addition_result_[bit_pos]->get_common_secret_share();
+      // common_secret_share[bit_pos] = addition_result_[bit_pos]->get_common_secret_share();
       // std::cout << "Size of common_secret_share while making == " 
       // << common_secret_share[bit_pos].GetSize() << std::endl;
     }
   }
   // TODO(pranav): Move this to setup phase, to optimize.
-  output_->set_setup_ready();
+  // output_->set_setup_ready();
   output_->set_online_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
@@ -1439,6 +1453,15 @@ void ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_setup() {
   for (auto& gate : gates_) {
     gate->evaluate_setup();
   }
+
+  auto& common_secret_share = output_->get_common_secret_share();
+#pragma omp parallel for
+    for (std::size_t bit_pos = 0; bit_pos < bit_size; ++bit_pos) {
+      addition_result_[bit_pos]->wait_setup();
+      // Copy the wire vector values to the tensor.
+      common_secret_share[bit_pos] = addition_result_[bit_pos]->get_common_secret_share();
+    }
+  output_->set_setup_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
@@ -1557,7 +1580,7 @@ void ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_online() {
 
     assert(addition_result_.size() == bit_size);
 
-    auto& common_secret_share = output_->get_common_secret_share();
+    // -------auto& common_secret_share = output_->get_common_secret_share();
     auto& public_share = output_->get_public_share();
     // auto& secret_share = output_->get_secret_share();
 #pragma omp parallel for
@@ -1565,11 +1588,11 @@ void ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_online() {
       addition_result_[bit_pos]->wait_online();
       // Copy the wire vector values to the tensor.
       public_share[bit_pos] = addition_result_[bit_pos]->get_public_share();
-      common_secret_share[bit_pos] = addition_result_[bit_pos]->get_common_secret_share();
+      // ---------- common_secret_share[bit_pos] = addition_result_[bit_pos]->get_common_secret_share();
     }
   }
-  // TODO(pranav): Move this to setup phase, to optimize.
-  output_->set_setup_ready();
+  // // TODO(pranav): Move this to setup phase, to optimize.
+  // output_->set_setup_ready();
   output_->set_online_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
@@ -1593,12 +1616,43 @@ BooleanBEAVYTensorRelu::BooleanBEAVYTensorRelu(std::size_t gate_id, BEAVYProvide
       input_(std::move(input)),
       output_(std::make_shared<BooleanBEAVYTensor>(input_->get_dimensions(), bit_size_)) {
   const auto my_id = beavy_provider_.get_my_id();
-  share_future_ =
-      beavy_provider_.register_for_bits_message(1 - my_id, gate_id_, data_size_ * (bit_size_ - 1));
-  Delta_y_share_.Reserve(Helpers::Convert::BitsToBytes((bit_size_ - 1) * data_size_));
-  auto& otp = beavy_provider_.get_ot_manager().get_provider(1 - my_id);
-  ot_sender_ = otp.RegisterSendXCOTBit(data_size_, bit_size_ - 1);
-  ot_receiver_ = otp.RegisterReceiveXCOTBit(data_size_, bit_size_ - 1);
+  // share_future_ =
+  //     beavy_provider_.register_for_bits_message(1 - my_id, gate_id_, data_size_ * (bit_size_ - 1));
+
+  // 1. Make the wire vector.
+  // 2. Spawn the AND gate.
+  // 3. Wire the input wires into the AND gate, and take the output.
+  // 4. Use the output wire vector to set the output of this gate!
+  A_.resize((bit_size_ - 1));
+  B_.resize((bit_size_ - 1));
+
+  auto msb_bit_vector = input->get_public_share()[bit_size_ - 1];
+  auto ss_msb = input->get_common_secret_share()[bit_size_ - 1];
+  A_boolean_.resize((bit_size_ - 1));
+  B_boolean_.resize((bit_size_ - 1));
+  A_boolean_[0] = std::make_shared<BooleanBEAVYWire>(
+    data_size_, beavy_provider_.get_num_parties());
+  // A_boolean_[0]->get_public_share() = msb_bit_vector;
+  // A_boolean_[0]->get_common_secret_share() = ss_msb;
+  A_[0] = cast_boolean_wire(A_boolean_[0]);
+
+#pragma omp parallel for
+  for (std::size_t bit_pos = 0; bit_pos < bit_size_ - 1; ++bit_pos) {
+    if (bit_pos > 0) {
+      A_boolean_[bit_pos] = A_boolean_[0];
+      A_[bit_pos] = A_[0];
+    }
+    B_boolean_[bit_pos] = std::make_shared<BooleanBEAVYWire>(
+    data_size_, beavy_provider_.get_num_parties());
+    // B_boolean_[bit_pos]->get_public_share() = input->get_public_share()[bit_pos];
+    // B_boolean_[bit_pos]->get_common_secret_share() = input->get_common_secret_share()[bit_pos];
+    B_[bit_pos] = cast_boolean_wire(B_boolean_[bit_pos]);
+  }
+  // Get the gate, send the values inside the gate somehow.
+  auto [gates, output_wires] = beavy_provider_.construct_binary_gate(
+    ENCRYPTO::PrimitiveOperationType::AND, A_, B_);
+  gates_ = std::move(gates);
+  and_result_ = cast_wires(output_wires);
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
@@ -1610,6 +1664,177 @@ BooleanBEAVYTensorRelu::BooleanBEAVYTensorRelu(std::size_t gate_id, BEAVYProvide
 
 BooleanBEAVYTensorRelu::~BooleanBEAVYTensorRelu() = default;
 
+void BooleanBEAVYTensorRelu::evaluate_setup_with_context(ExecutionContext& exec_ctx) {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = beavy_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: BooleanBEAVYTensorRelu::evaluate_setup_with_context start", gate_id_));
+    }
+  }
+  input_->wait_setup();
+#pragma omp parallel for
+  for (std::size_t bit_pos = 0; bit_pos < bit_size_; ++bit_pos) {
+    if (bit_pos == bit_size_ - 1) {
+      A_boolean_[0]->get_common_secret_share() = input_->get_common_secret_share()[bit_size_ - 1];
+      A_boolean_[0]->set_setup_ready();
+      continue;
+    }
+    B_boolean_[bit_pos]->get_common_secret_share() = input_->get_common_secret_share()[bit_pos];
+    B_boolean_[bit_pos]->set_setup_ready();
+  }
+  // TODO(pranav): Check if the exec_ctx thread spawning is necessary here or not.
+  exec_ctx.fpool_->post([&] { gates_->evaluate_setup(); });
+  assert(and_result_.size() == bit_size_ - 1);
+  for (std::size_t bit_pos = 0; bit_pos < bit_size_; ++bit_pos) {
+    if (bit_pos == bit_size_ - 1) {
+      auto& ss = output_->get_common_secret_share()[bit_size_ - 1];
+      // MSB is always zero.
+      ss = ENCRYPTO::BitVector<>(data_size_, 0);
+      continue;
+    }
+    and_result_[bit_pos]->wait_setup();
+    output_->get_common_secret_share()[bit_pos] = 
+    and_result_[bit_pos]->get_common_secret_share();
+  }
+  output_->set_setup_ready();
+
+//   // generate the secret shares
+//   auto& out_sshares = output_->get_secret_share();
+//   assert(out_sshares.size() == bit_size_);
+// #pragma omp parallel for
+//   for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
+//     out_sshares[bit_j] = ENCRYPTO::BitVector<>::Random(data_size_);
+//   }
+//   // the last bit is always 0
+//   out_sshares[bit_size_ - 1] = ENCRYPTO::BitVector<>(data_size_, false);
+//   output_->set_setup_ready();
+
+//   input_->wait_setup();
+//   const auto& sshares = input_->get_secret_share();
+//   const auto& my_msb_sshare = sshares[bit_size_ - 1];
+
+//   ot_receiver_->SetChoices(my_msb_sshare);
+//   ot_receiver_->SendCorrections();
+//   ENCRYPTO::BitVector<> ot_inputs((bit_size_ - 1) * data_size_);
+//   // inefficient, but works ...
+//   for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
+//     for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
+//       ot_inputs.Set(sshares[bit_j].Get(int_i), int_i * (bit_size_ - 1) + bit_j);
+//     }
+//   }
+//   ot_sender_->SetCorrelations(std::move(ot_inputs));
+//   ot_sender_->SendMessages();
+//   ot_sender_->ComputeOutputs();
+//   ot_receiver_->ComputeOutputs();
+
+//   // compute the products of the msb_mask with all other masks
+//   for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
+//     // local part
+//     auto tmp = my_msb_sshare & sshares[bit_j];
+//     // output mask
+//     tmp ^= out_sshares[bit_j];
+//     Delta_y_share_.Append(tmp);
+//   }
+//   const auto ot_snd_out = ot_sender_->GetOutputs();
+//   const auto ot_rcv_out = ot_receiver_->GetOutputs();
+//   // inefficient, but works ...
+//   for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
+//     for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
+//       bool tmp = Delta_y_share_.Get(bit_j * data_size_ + int_i);
+//       // product of other msb_mask with my sshare masks
+//       tmp ^= ot_snd_out.Get(int_i * (bit_size_ - 1) + bit_j);
+//       // product of my_msb_mask with other sshare masks
+//       tmp ^= ot_rcv_out.Get(int_i * (bit_size_ - 1) + bit_j);
+//       Delta_y_share_.Set(tmp, bit_j * data_size_ + int_i);
+//     }
+//   }
+//   // => Delta_y_share_ contains now [delta_ab]_i ^ [delta_y]_i
+
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = beavy_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: BooleanBEAVYTensorRelu::evaluate_setup_with_context end", gate_id_));
+    }
+  }
+}
+
+void BooleanBEAVYTensorRelu::evaluate_online_with_context(ExecutionContext& exec_ctx) {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = beavy_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: BooleanBEAVYTensorRelu::evaluate_online_with_context start", gate_id_));
+    }
+  }
+  input_->wait_online();
+#pragma omp parallel for
+  for (std::size_t bit_pos = 0; bit_pos < bit_size_; ++bit_pos) {
+    if (bit_pos == bit_size_ - 1) {
+      A_boolean_[0]->get_public_share() = ~(input_->get_public_share()[bit_size_ - 1]);
+      A_boolean_[0]->set_online_ready();
+      continue;
+    }
+    B_boolean_[bit_pos]->get_public_share() = input_->get_public_share()[bit_pos];
+    B_boolean_[bit_pos]->set_online_ready();
+  }
+  // TODO(pranav): Check if the exec_ctx thread spawning is necessary here or not.
+  exec_ctx.fpool_->post([&] { gates_->evaluate_online(); });
+  for (std::size_t bit_pos = 0; bit_pos < bit_size_; ++bit_pos) {
+    if (bit_pos == bit_size_ - 1) {
+      auto& ps = output_->get_public_share()[bit_size_ - 1];
+      // MSB is always zero.
+      ps = ENCRYPTO::BitVector<>(data_size_, 0);
+      continue;
+    }
+    and_result_[bit_pos]->wait_online();
+    output_->get_public_share()[bit_pos] = and_result_[bit_pos]->get_public_share();
+  }
+  output_->set_online_ready();
+
+  // input_->wait_online();
+  // const auto& pshares = input_->get_public_share();
+  // const auto my_msb_pshare = ~pshares[bit_size_ - 1];
+  // const auto& sshares = input_->get_secret_share();
+  // const auto& my_msb_sshare = sshares[bit_size_ - 1];
+
+//   ENCRYPTO::BitVector tmp;
+//   tmp.Reserve(Helpers::Convert::BitsToBytes((bit_size_ - 1) * data_size_));
+//   const bool my_job = beavy_provider_.is_my_job(gate_id_);
+//   for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
+//     // Delta_y_share_ ^= Delta_a & [delta_b]_i
+//     auto tmp2 = my_msb_pshare & sshares[bit_j];
+//     // Delta_y_share_ ^= [delta_a]_i & Delta_b
+//     tmp2 ^= my_msb_sshare & pshares[bit_j];
+//     if (my_job) {
+//       // Delta_y_share_ ^= Delta_a & Delta_b
+//       tmp2 ^= my_msb_pshare & pshares[bit_j];
+//     }
+//     tmp.Append(tmp2);
+//   }
+//   Delta_y_share_ ^= tmp;
+//   const auto my_id = beavy_provider_.get_my_id();
+//   beavy_provider_.send_bits_message(1 - my_id, gate_id_, Delta_y_share_);
+//   Delta_y_share_ ^= share_future_.get();
+
+//   auto& out_pshares = output_->get_public_share();
+// #pragma omp parallel for
+//   for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
+//     out_pshares[bit_j] = Delta_y_share_.Subset(bit_j * data_size_, (bit_j + 1) * data_size_);
+//   }
+//   out_pshares[bit_size_ - 1].Resize(data_size_, true);  // fill with zeros
+//   output_->set_online_ready();
+
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = beavy_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: BooleanBEAVYTensorRelu::evaluate_online_with_context end", gate_id_));
+    }
+  }
+}
+
 void BooleanBEAVYTensorRelu::evaluate_setup() {
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
@@ -1618,57 +1843,58 @@ void BooleanBEAVYTensorRelu::evaluate_setup() {
           fmt::format("Gate {}: BooleanBEAVYTensorRelu::evaluate_setup start", gate_id_));
     }
   }
+  throw std::logic_error("Not yet implemented.");
 
-  // generate the secret shares
-  auto& out_sshares = output_->get_secret_share();
-  assert(out_sshares.size() == bit_size_);
-#pragma omp parallel for
-  for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
-    out_sshares[bit_j] = ENCRYPTO::BitVector<>::Random(data_size_);
-  }
-  // the last bit is always 0
-  out_sshares[bit_size_ - 1] = ENCRYPTO::BitVector<>(data_size_, false);
-  output_->set_setup_ready();
+//   // generate the secret shares
+//   auto& out_sshares = output_->get_secret_share();
+//   assert(out_sshares.size() == bit_size_);
+// #pragma omp parallel for
+//   for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
+//     out_sshares[bit_j] = ENCRYPTO::BitVector<>::Random(data_size_);
+//   }
+//   // the last bit is always 0
+//   out_sshares[bit_size_ - 1] = ENCRYPTO::BitVector<>(data_size_, false);
+//   output_->set_setup_ready();
 
-  input_->wait_setup();
-  const auto& sshares = input_->get_secret_share();
-  const auto& my_msb_sshare = sshares[bit_size_ - 1];
+//   input_->wait_setup();
+//   const auto& sshares = input_->get_secret_share();
+//   const auto& my_msb_sshare = sshares[bit_size_ - 1];
 
-  ot_receiver_->SetChoices(my_msb_sshare);
-  ot_receiver_->SendCorrections();
-  ENCRYPTO::BitVector<> ot_inputs((bit_size_ - 1) * data_size_);
-  // inefficient, but works ...
-  for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
-    for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
-      ot_inputs.Set(sshares[bit_j].Get(int_i), int_i * (bit_size_ - 1) + bit_j);
-    }
-  }
-  ot_sender_->SetCorrelations(std::move(ot_inputs));
-  ot_sender_->SendMessages();
-  ot_sender_->ComputeOutputs();
-  ot_receiver_->ComputeOutputs();
+//   ot_receiver_->SetChoices(my_msb_sshare);
+//   ot_receiver_->SendCorrections();
+//   ENCRYPTO::BitVector<> ot_inputs((bit_size_ - 1) * data_size_);
+//   // inefficient, but works ...
+//   for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
+//     for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
+//       ot_inputs.Set(sshares[bit_j].Get(int_i), int_i * (bit_size_ - 1) + bit_j);
+//     }
+//   }
+//   ot_sender_->SetCorrelations(std::move(ot_inputs));
+//   ot_sender_->SendMessages();
+//   ot_sender_->ComputeOutputs();
+//   ot_receiver_->ComputeOutputs();
 
-  // compute the products of the msb_mask with all other masks
-  for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
-    // local part
-    auto tmp = my_msb_sshare & sshares[bit_j];
-    // output mask
-    tmp ^= out_sshares[bit_j];
-    Delta_y_share_.Append(tmp);
-  }
-  const auto ot_snd_out = ot_sender_->GetOutputs();
-  const auto ot_rcv_out = ot_receiver_->GetOutputs();
-  // inefficient, but works ...
-  for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
-    for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
-      bool tmp = Delta_y_share_.Get(bit_j * data_size_ + int_i);
-      // product of other msb_mask with my sshare masks
-      tmp ^= ot_snd_out.Get(int_i * (bit_size_ - 1) + bit_j);
-      // product of my_msb_mask with other sshare masks
-      tmp ^= ot_rcv_out.Get(int_i * (bit_size_ - 1) + bit_j);
-      Delta_y_share_.Set(tmp, bit_j * data_size_ + int_i);
-    }
-  }
+//   // compute the products of the msb_mask with all other masks
+//   for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
+//     // local part
+//     auto tmp = my_msb_sshare & sshares[bit_j];
+//     // output mask
+//     tmp ^= out_sshares[bit_j];
+//     Delta_y_share_.Append(tmp);
+//   }
+//   const auto ot_snd_out = ot_sender_->GetOutputs();
+//   const auto ot_rcv_out = ot_receiver_->GetOutputs();
+//   // inefficient, but works ...
+//   for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
+//     for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
+//       bool tmp = Delta_y_share_.Get(bit_j * data_size_ + int_i);
+//       // product of other msb_mask with my sshare masks
+//       tmp ^= ot_snd_out.Get(int_i * (bit_size_ - 1) + bit_j);
+//       // product of my_msb_mask with other sshare masks
+//       tmp ^= ot_rcv_out.Get(int_i * (bit_size_ - 1) + bit_j);
+//       Delta_y_share_.Set(tmp, bit_j * data_size_ + int_i);
+//     }
+//   }
   // => Delta_y_share_ contains now [delta_ab]_i ^ [delta_y]_i
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
@@ -1689,38 +1915,40 @@ void BooleanBEAVYTensorRelu::evaluate_online() {
     }
   }
 
-  input_->wait_online();
-  const auto& pshares = input_->get_public_share();
-  const auto my_msb_pshare = ~pshares[bit_size_ - 1];
-  const auto& sshares = input_->get_secret_share();
-  const auto& my_msb_sshare = sshares[bit_size_ - 1];
+  throw std::logic_error("Not yet implemented.");
 
-  ENCRYPTO::BitVector tmp;
-  tmp.Reserve(Helpers::Convert::BitsToBytes((bit_size_ - 1) * data_size_));
-  const bool my_job = beavy_provider_.is_my_job(gate_id_);
-  for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
-    // Delta_y_share_ ^= Delta_a & [delta_b]_i
-    auto tmp2 = my_msb_pshare & sshares[bit_j];
-    // Delta_y_share_ ^= [delta_a]_i & Delta_b
-    tmp2 ^= my_msb_sshare & pshares[bit_j];
-    if (my_job) {
-      // Delta_y_share_ ^= Delta_a & Delta_b
-      tmp2 ^= my_msb_pshare & pshares[bit_j];
-    }
-    tmp.Append(tmp2);
-  }
-  Delta_y_share_ ^= tmp;
-  const auto my_id = beavy_provider_.get_my_id();
-  beavy_provider_.send_bits_message(1 - my_id, gate_id_, Delta_y_share_);
-  Delta_y_share_ ^= share_future_.get();
+//   input_->wait_online();
+//   const auto& pshares = input_->get_public_share();
+//   const auto my_msb_pshare = ~pshares[bit_size_ - 1];
+//   const auto& sshares = input_->get_secret_share();
+//   const auto& my_msb_sshare = sshares[bit_size_ - 1];
 
-  auto& out_pshares = output_->get_public_share();
-#pragma omp parallel for
-  for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
-    out_pshares[bit_j] = Delta_y_share_.Subset(bit_j * data_size_, (bit_j + 1) * data_size_);
-  }
-  out_pshares[bit_size_ - 1].Resize(data_size_, true);  // fill with zeros
-  output_->set_online_ready();
+//   ENCRYPTO::BitVector tmp;
+//   tmp.Reserve(Helpers::Convert::BitsToBytes((bit_size_ - 1) * data_size_));
+//   const bool my_job = beavy_provider_.is_my_job(gate_id_);
+//   for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
+//     // Delta_y_share_ ^= Delta_a & [delta_b]_i
+//     auto tmp2 = my_msb_pshare & sshares[bit_j];
+//     // Delta_y_share_ ^= [delta_a]_i & Delta_b
+//     tmp2 ^= my_msb_sshare & pshares[bit_j];
+//     if (my_job) {
+//       // Delta_y_share_ ^= Delta_a & Delta_b
+//       tmp2 ^= my_msb_pshare & pshares[bit_j];
+//     }
+//     tmp.Append(tmp2);
+//   }
+//   Delta_y_share_ ^= tmp;
+//   const auto my_id = beavy_provider_.get_my_id();
+//   beavy_provider_.send_bits_message(1 - my_id, gate_id_, Delta_y_share_);
+//   Delta_y_share_ ^= share_future_.get();
+
+//   auto& out_pshares = output_->get_public_share();
+// #pragma omp parallel for
+//   for (std::size_t bit_j = 0; bit_j < bit_size_ - 1; ++bit_j) {
+//     out_pshares[bit_j] = Delta_y_share_.Subset(bit_j * data_size_, (bit_j + 1) * data_size_);
+//   }
+//   out_pshares[bit_size_ - 1].Resize(data_size_, true);  // fill with zeros
+//   output_->set_online_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();

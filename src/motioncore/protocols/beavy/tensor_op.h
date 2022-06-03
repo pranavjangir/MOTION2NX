@@ -319,7 +319,9 @@ class BooleanBEAVYTensorRelu : public NewGate {
   bool need_setup() const noexcept override { return true; }
   bool need_online() const noexcept override { return true; }
   void evaluate_setup() override;
+  void evaluate_setup_with_context(ExecutionContext&) override;
   void evaluate_online() override;
+  void evaluate_online_with_context(ExecutionContext&) override;
   const BooleanBEAVYTensorP& get_output_tensor() const { return output_; }
 
  private:
@@ -328,10 +330,15 @@ class BooleanBEAVYTensorRelu : public NewGate {
   const std::size_t data_size_;
   const BooleanBEAVYTensorCP input_;
   BooleanBEAVYTensorP output_;
-  std::unique_ptr<ENCRYPTO::ObliviousTransfer::XCOTBitSender> ot_sender_;
-  std::unique_ptr<ENCRYPTO::ObliviousTransfer::XCOTBitReceiver> ot_receiver_;
-  ENCRYPTO::BitVector<> Delta_y_share_;
+  // WireVector size = num_bits-1.
+  // Per Wire, the number of elements = num_simd.
+  MOTION::WireVector A_;
+  MOTION::WireVector B_;
+  BooleanBEAVYWireVector A_boolean_;
+  BooleanBEAVYWireVector B_boolean_;
   ENCRYPTO::ReusableFiberFuture<ENCRYPTO::BitVector<>> share_future_;
+  BooleanBEAVYWireVector and_result_;
+  std::unique_ptr<NewGate> gates_;
 };
 
 template <typename T>
