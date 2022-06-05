@@ -1180,7 +1180,7 @@ ArithmeticToBooleanBEAVYTensorConversion<T>::ArithmeticToBooleanBEAVYTensorConve
       beavy_provider_(beavy_provider),
       data_size_(input->get_dimensions().get_data_size()),
       input_(std::move(input)),
-      output_(std::make_shared<BooleanBEAVYTensor>(input_->get_dimensions(), ENCRYPTO::bit_size_v<T>)),
+      output_(std::make_shared<BooleanBEAVYTensor>(input_->get_dimensions(), ENCRYPTO::bit_size_v<T>, beavy_provider.get_num_parties())),
       output_public_(ENCRYPTO::bit_size_v<T>),
       output_random_(ENCRYPTO::bit_size_v<T>) {
   const auto my_id = beavy_provider_.get_my_id();
@@ -1614,7 +1614,7 @@ BooleanBEAVYTensorRelu::BooleanBEAVYTensorRelu(std::size_t gate_id, BEAVYProvide
       bit_size_(input->get_bit_size()),
       data_size_(input->get_dimensions().get_data_size()),
       input_(std::move(input)),
-      output_(std::make_shared<BooleanBEAVYTensor>(input_->get_dimensions(), bit_size_)) {
+      output_(std::make_shared<BooleanBEAVYTensor>(input_->get_dimensions(), bit_size_, beavy_provider.get_num_parties())) {
   const auto my_id = beavy_provider_.get_my_id();
   // share_future_ =
   //     beavy_provider_.register_for_bits_message(1 - my_id, gate_id_, data_size_ * (bit_size_ - 1));
@@ -1632,8 +1632,6 @@ BooleanBEAVYTensorRelu::BooleanBEAVYTensorRelu(std::size_t gate_id, BEAVYProvide
   B_boolean_.resize((bit_size_ - 1));
   A_boolean_[0] = std::make_shared<BooleanBEAVYWire>(
     data_size_, beavy_provider_.get_num_parties());
-  // A_boolean_[0]->get_public_share() = msb_bit_vector;
-  // A_boolean_[0]->get_common_secret_share() = ss_msb;
   A_[0] = cast_boolean_wire(A_boolean_[0]);
 
 #pragma omp parallel for
@@ -1644,8 +1642,6 @@ BooleanBEAVYTensorRelu::BooleanBEAVYTensorRelu(std::size_t gate_id, BEAVYProvide
     }
     B_boolean_[bit_pos] = std::make_shared<BooleanBEAVYWire>(
     data_size_, beavy_provider_.get_num_parties());
-    // B_boolean_[bit_pos]->get_public_share() = input->get_public_share()[bit_pos];
-    // B_boolean_[bit_pos]->get_common_secret_share() = input->get_common_secret_share()[bit_pos];
     B_[bit_pos] = cast_boolean_wire(B_boolean_[bit_pos]);
   }
   // Get the gate, send the values inside the gate somehow.
