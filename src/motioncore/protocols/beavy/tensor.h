@@ -70,6 +70,9 @@ class BooleanBEAVYTensor : public tensor::Tensor, public ENCRYPTO::enable_wait_s
   BooleanBEAVYTensor(const tensor::TensorDimensions& dims, std::size_t bit_size, std::size_t num_parties = 2)
       : Tensor(dims), bit_size_(bit_size), public_share_(bit_size), secret_share_(bit_size), 
       common_secret_share_(bit_size) {
+        if (num_parties == 2) {
+          throw std::logic_error("ERROR :num_parties must always be > 2. \n");
+        }
         for (std::size_t bit = 0; bit < bit_size; ++bit) {
           common_secret_share_[bit].Resize(1LL << num_parties);
         }
