@@ -1016,18 +1016,19 @@ BooleanToArithmeticBEAVYTensorConversion<T>::BooleanToArithmeticBEAVYTensorConve
       beavy_provider_(beavy_provider),
       data_size_(input->get_dimensions().get_data_size()),
       input_(std::move(input)),
-      output_(std::make_shared<ArithmeticBEAVYTensor<T>>(input_->get_dimensions())) {
+      output_(std::make_shared<ArithmeticBEAVYTensor<T>>(input_->get_dimensions(), beavy_provider.get_num_parties())) {
   const auto my_id = beavy_provider_.get_my_id();
+  const auto p_king = beavy_provider_.get_p_king();
+  const auto num_parties = beavy_provider_.get_num_parties();
 
-  auto& ot_provider = beavy_provider_.get_ot_manager().get_provider(1 - my_id);
-  if (my_id == 0) {
-    ot_sender_ = ot_provider.RegisterSendACOT<T>(bit_size_ * data_size_);
-  } else {
-    assert(my_id == 1);
-    ot_receiver_ = ot_provider.RegisterReceiveACOT<T>(bit_size_ * data_size_);
+  if (my_id == p_king) {
+    // share_future_ = beavy_provider_.register_for_ints_messages<T>(gate_id_, data_size_);
+    bits_share_future_ = beavy_provider_.register_for_bits_messages(
+      gate_id_, input_->get_bit_size() * data_size_ * bit_size_);
+  } else if (my_id <= num_parties / 2) {
+    share_future_ = beavy_provider_.register_for_ints_message<T>(p_king, gate_id_, data_size_ * bit_size_);
   }
-  share_future_ = beavy_provider_.register_for_ints_message<T>(1 - my_id, gate_id_, data_size_);
-
+  random_bit_ = 1;
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
     if (logger) {
@@ -1049,56 +1050,15 @@ void BooleanToArithmeticBEAVYTensorConversion<T>::evaluate_setup() {
           "Gate {}: BooleanToArithmeticBEAVYTensorConversion<T>::evaluate_setup start", gate_id_));
     }
   }
+  const auto my_id = beavy_provider_.get_my_id();
+  const auto p_king = beavy_provider_.get_p_king();
+  const auto& owned_shares = beavy_provider_.get_owned_shares();
+  auto& output_ss = output_->get_common_secret_share();
 
-  output_->get_secret_share() = Helpers::RandomVector<T>(data_size_);
-  output_->set_setup_ready();
-
-  input_->wait_setup();
-  const auto& sshares = input_->get_secret_share();
-  assert(sshares.size() == bit_size_);
-
-  std::vector<T> ot_output;
-  if (ot_sender_ != nullptr) {
-    std::vector<T> correlations(bit_size_ * data_size_);
-#pragma omp parallel for
-    for (std::size_t bit_j = 0; bit_j < bit_size_; ++bit_j) {
-      for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
-        if (sshares[bit_j].Get(int_i)) {
-          correlations[bit_j * data_size_ + int_i] = 1;
-        }
-      }
-    }
-    ot_sender_->SetCorrelations(std::move(correlations));
-    ot_sender_->SendMessages();
-    ot_sender_->ComputeOutputs();
-    ot_output = ot_sender_->GetOutputs();
-#pragma omp parallel for
-    for (std::size_t bit_j = 0; bit_j < bit_size_; ++bit_j) {
-      for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
-        T bit = sshares[bit_j].Get(int_i);
-        ot_output[bit_j * data_size_ + int_i] = bit + 2 * ot_output[bit_j * data_size_ + int_i];
-      }
-    }
-  } else {
-    assert(ot_receiver_ != nullptr);
-    ENCRYPTO::BitVector<> choices;
-    choices.Reserve(Helpers::Convert::BitsToBytes(bit_size_ * data_size_));
-    for (const auto& sshare : sshares) {
-      choices.Append(sshare);
-    }
-    ot_receiver_->SetChoices(std::move(choices));
-    ot_receiver_->SendCorrections();
-    ot_receiver_->ComputeOutputs();
-    ot_output = ot_receiver_->GetOutputs();
-#pragma omp parallel for
-    for (std::size_t bit_j = 0; bit_j < bit_size_; ++bit_j) {
-      for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
-        T bit = sshares[bit_j].Get(int_i);
-        ot_output[bit_j * data_size_ + int_i] = bit - 2 * ot_output[bit_j * data_size_ + int_i];
-      }
-    }
+  for (const auto share : owned_shares[my_id]) {
+    output_ss[share] = 0;
   }
-  arithmetized_secret_share_ = std::move(ot_output);
+  output_->set_setup_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
@@ -1120,45 +1080,88 @@ void BooleanToArithmeticBEAVYTensorConversion<T>::evaluate_online() {
   }
 
   const auto my_id = beavy_provider_.get_my_id();
-  std::vector<T> arithmetized_public_share(bit_size_ * data_size_);
+  const auto p_king = beavy_provider_.get_p_king();
+  const auto num_parties = beavy_provider_.get_num_parties();
+  const auto& owned_shares = beavy_provider_.get_owned_shares();
+  const auto& pking_shares = beavy_provider_.get_shares_for_p_king();
 
+  input_->wait_setup();
   input_->wait_online();
-  const auto& pshares = input_->get_public_share();
 
+  if (my_id > (num_parties / 2)) {
+    output_->set_online_ready();
+    return;
+  }
+
+  ENCRYPTO::BitVector<> r(data_size_, random_bit_);
+  std::vector<ENCRYPTO::BitVector<>> C_boolean(bit_size_);
 #pragma omp parallel for
-  for (std::size_t bit_j = 0; bit_j < bit_size_; ++bit_j) {
-    for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
-      if (pshares[bit_j].Get(int_i)) {
-        arithmetized_public_share[bit_j * data_size_ + int_i] = 1;
-      }
+  for (std::size_t bit_pos = 0; bit_pos < bit_size_; ++bit_pos) {
+    const auto& ps = input_->get_public_share()[bit_pos];
+    assert(r.GetSize() == ps.GetSize());
+    C_boolean[bit_pos] = (ps ^ r);
+  }
+
+// Sending and recieving phase to constuct C = b XOR r (arithmetic) in clear.
+std::vector<T> C_arith(data_size_ * bit_size_);
+if (my_id == p_king) {
+  // p_king will recieve the shares to construct b XOR r in clear.
+  // It will then send the arithmetic values to other parties in E.
+  ENCRYPTO::BitVector<> shares_from_others(data_size_ * bit_size_, 0);
+  for (std::size_t party = 0; party <= num_parties / 2; ++party) {
+    if (party == my_id) continue;
+    shares_from_others ^= bits_share_future_[party].get();
+  }
+#pragma omp parallel for
+  for (std::size_t bit_pos = 0; bit_pos < bit_size_; ++bit_pos) {
+    bool own_random_val = false;
+    const auto& css = input_->get_common_secret_share()[bit_pos];
+    for (const auto share : owned_shares[my_id]) {
+      own_random_val ^= css[share];
+    }
+    ENCRYPTO::BitVector<> bv(data_size_, own_random_val);
+    bv ^= C_boolean[bit_pos];
+    bv ^= shares_from_others.Subset(bit_pos*data_size_, (bit_pos + 1)*data_size_);
+    assert(bv.GetSize() == data_size_);
+#pragma omp parallel for
+    for (std::size_t i = 0; i < data_size_; ++i) {
+      C_arith[bit_pos*data_size_ + i] = bv.Get(i);
     }
   }
 
-  auto tmp = output_->get_secret_share();
-  if (beavy_provider_.is_my_job(gate_id_)) {
-#pragma omp parallel for
-    for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
-      for (std::size_t bit_j = 0; bit_j < bit_size_; ++bit_j) {
-        const auto p = arithmetized_public_share[bit_j * data_size_ + int_i];
-        const auto s = arithmetized_secret_share_[bit_j * data_size_ + int_i];
-        tmp[int_i] += (p + (1 - 2 * p) * s) << bit_j;
-      }
+  for (std::size_t party = 0; party <= (num_parties / 2); ++party) {
+    if (party == my_id) continue;
+    beavy_provider_.send_ints_message(party, gate_id_, C_arith);
+  }
+} else {
+  // Send the shares to p_king.
+  // Recieve the arithmetic shares from p_king.
+  ENCRYPTO::BitVector<> shares_for_pking;
+  for (std::size_t bit_pos = 0; bit_pos < bit_size_; ++bit_pos) {
+    bool value = false;
+    auto& css = input_->get_common_secret_share()[bit_pos];
+    for (const auto share : pking_shares[my_id]) {
+      value ^= css[share];
     }
-  } else {
+    ENCRYPTO::BitVector<> wire_share(data_size_, value);
+    shares_for_pking.Append(wire_share);
+  }
+  assert(shares_for_pking.GetSize() == bit_size_ * data_size_);
+  beavy_provider_.send_bits_message(p_king, gate_id_, shares_for_pking);
+
+  C_arith = share_future_.get();
+}
+
+// calculate the b2A for every bit.
+// calculate the actual integers in the op tensor.
 #pragma omp parallel for
-    for (std::size_t int_i = 0; int_i < data_size_; ++int_i) {
-      for (std::size_t bit_j = 0; bit_j < bit_size_; ++bit_j) {
-        const auto p = arithmetized_public_share[bit_j * data_size_ + int_i];
-        const auto s = arithmetized_secret_share_[bit_j * data_size_ + int_i];
-        tmp[int_i] += ((1 - 2 * p) * s) << bit_j;
-      }
+  for (std::size_t i = 0; i < data_size_; ++i) {
+    auto& ps = output_->get_public_share();
+    ps[i] = 0;
+    for (std::size_t bit_pos = 0; bit_pos < bit_size_; ++bit_pos) {
+      ps[i] += (1LL << bit_pos)*(random_bit_ + C_arith[bit_pos*data_size_ + i] - 2*random_bit_*C_arith[bit_pos*data_size_ + i]);
     }
   }
-  beavy_provider_.send_ints_message(1 - my_id, gate_id_, tmp);
-  const auto other_share = share_future_.get();
-  __gnu_parallel::transform(std::begin(tmp), std::end(tmp), std::begin(other_share),
-                            std::begin(tmp), std::plus{});
-  output_->get_public_share() = std::move(tmp);
   output_->set_online_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
@@ -1193,12 +1196,6 @@ ArithmeticToBooleanBEAVYTensorConversion<T>::ArithmeticToBooleanBEAVYTensorConve
   } else {
     share_future_[p_king] = beavy_provider_.register_for_ints_message<T>(p_king, gate_id_, data_size_);
   }
-
-  // Total steps : 
-  // Generate a random value, both in arithmetic sharing, and in boolean sharing.
-  // Calculate Z-r in public --> change public value to binary --> this is op public
-  // Calculate r in boolean. --> stored in o/p random.
-  // Next step is to run an addition circuit on these two. This should happen here itself.
 
   // Spawn the depth optimized addition circuit.
   auto& addition_circuit =

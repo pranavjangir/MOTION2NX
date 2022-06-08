@@ -273,10 +273,10 @@ class BooleanToArithmeticBEAVYTensorConversion : public NewGate {
   static constexpr auto bit_size_ = ENCRYPTO::bit_size_v<T>;
   const std::size_t data_size_;
   const BooleanBEAVYTensorCP input_;
+  // TODO(pranav): Make this "random" bit actually random.
+  int random_bit_;
   ArithmeticBEAVYTensorP<T> output_;
-  ENCRYPTO::ReusableFiberFuture<ENCRYPTO::BitVector<>> t_share_future_;
-  std::unique_ptr<ENCRYPTO::ObliviousTransfer::ACOTSender<T>> ot_sender_;
-  std::unique_ptr<ENCRYPTO::ObliviousTransfer::ACOTReceiver<T>> ot_receiver_;
+  std::vector<ENCRYPTO::ReusableFiberFuture<ENCRYPTO::BitVector<>>> bits_share_future_;
   std::vector<T> arithmetized_secret_share_;
   ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_;
 };
