@@ -1195,10 +1195,8 @@ void ArithmeticBEAVYMULGate<T>::evaluate_setup() {
   } else if (my_id > (num_parties/2)) {
     // If party is in D, then send the requires shares to P_king.
     std::size_t share_to_send_p_king = 0;
-    if (!mul_shares[my_id].empty()) {
-      for (const auto [i, j] : mul_shares[my_id]) {
-        share_to_send_p_king += input_a_secret_shares[i]*input_b_secret_shares[j];
-      }
+    for (const auto [i, j] : mul_shares[my_id]) {
+      share_to_send_p_king += input_a_secret_shares[i]*input_b_secret_shares[j];
     }
     beavy_provider_.send_ints_message(p_king, this->gate_id_, std::vector<T>(1, share_to_send_p_king));
   }
