@@ -35,7 +35,7 @@ class ArithmeticBEAVYTensor : public tensor::Tensor, public ENCRYPTO::enable_wai
  public:
   using Tensor::Tensor;
   ArithmeticBEAVYTensor(const tensor::TensorDimensions& dims, std::size_t num_parties = 2)
-      : Tensor(dims), public_share_(dims.get_data_size()), common_secret_share_((1LL << num_parties), 0) {}
+      : Tensor(dims), public_share_(dims.get_data_size(), 0), common_secret_share_((1LL << num_parties), 0) {}
   MPCProtocol get_protocol() const noexcept override { return MPCProtocol::ArithmeticBEAVY; }
   std::size_t get_bit_size() const noexcept override { return ENCRYPTO::bit_size_v<T>; }
   std::vector<T>& get_public_share() { return public_share_; };

@@ -192,6 +192,7 @@ class ArithmeticBEAVYTensorGemm : public NewGate {
   void evaluate_setup() override;
   void evaluate_online() override;
   const ArithmeticBEAVYTensorP<T>& get_output_tensor() const { return output_; }
+  // std::vector<T> get_shares_from_D() { return shares_from_D_; }
 
  private:
   BEAVYProvider& beavy_provider_;
@@ -200,10 +201,8 @@ class ArithmeticBEAVYTensorGemm : public NewGate {
   const ArithmeticBEAVYTensorCP<T> input_A_;
   const ArithmeticBEAVYTensorCP<T> input_B_;
   std::shared_ptr<ArithmeticBEAVYTensor<T>> output_;
-  ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_;
-  std::vector<T> Delta_y_share_;
-  std::unique_ptr<MOTION::MatrixMultiplicationRHS<T>> mm_rhs_side_;
-  std::unique_ptr<MOTION::MatrixMultiplicationLHS<T>> mm_lhs_side_;
+  std::vector<ENCRYPTO::ReusableFiberFuture<std::vector<T>>> share_future_;
+  std::vector<T> shares_from_D_;
 };
 
 template <typename T>

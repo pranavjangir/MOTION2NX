@@ -569,19 +569,21 @@ ArithmeticBEAVYTensorGemm<T>::ArithmeticBEAVYTensorGemm(std::size_t gate_id,
       fractional_bits_(fractional_bits),
       input_A_(input_A),
       input_B_(input_B),
-      output_(std::make_shared<ArithmeticBEAVYTensor<T>>(gemm_op.get_output_tensor_dims())) {
+      output_(std::make_shared<ArithmeticBEAVYTensor<T>>(gemm_op.get_output_tensor_dims(),
+       beavy_provider.get_num_parties())) {
   const auto my_id = beavy_provider_.get_my_id();
+  const auto p_king = beavy_provider_.get_p_king();
+  const auto num_parties = beavy_provider_.get_num_parties();
   const auto output_size = gemm_op_.compute_output_size();
-  share_future_ = beavy_provider_.register_for_ints_message<T>(1 - my_id, gate_id_, output_size);
-  auto& ap = beavy_provider_.get_arith_manager().get_provider(1 - my_id);
-  const auto dim_l = gemm_op_.input_A_shape_[0];
-  const auto dim_m = gemm_op_.input_A_shape_[1];
-  const auto dim_n = gemm_op_.input_B_shape_[1];
-  if (!beavy_provider_.get_fake_setup()) {
-    mm_lhs_side_ = ap.template register_matrix_multiplication_lhs<T>(dim_l, dim_m, dim_n);
-    mm_rhs_side_ = ap.template register_matrix_multiplication_rhs<T>(dim_l, dim_m, dim_n);
+  share_future_.resize(num_parties);
+  if (my_id == p_king) {
+    share_future_ = beavy_provider_.register_for_ints_messages<T>(gate_id_, output_size);
+  } else if (my_id <= (num_parties / 2)) {
+    share_future_[p_king] = beavy_provider_.register_for_ints_message<T>(p_king, gate_id_, output_size);
   }
-  Delta_y_share_.resize(output_size);
+  // const auto dim_l = gemm_op_.input_A_shape_[0];
+  // const auto dim_m = gemm_op_.input_A_shape_[1];
+  // const auto dim_n = gemm_op_.input_B_shape_[1];
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
@@ -604,54 +606,42 @@ void ArithmeticBEAVYTensorGemm<T>::evaluate_setup() {
     }
   }
 
-  const auto output_size = gemm_op_.compute_output_size();
+  auto my_id = beavy_provider_.get_my_id();
+  auto p_king = beavy_provider_.get_p_king();
+  std::size_t num_parties = beavy_provider_.get_num_parties();
+  auto& owned_shares = beavy_provider_.get_owned_shares();
+  auto& mul_shares = beavy_provider_.get_mup_shares_for_p_king();
 
-  output_->get_secret_share() = Helpers::RandomVector<T>(output_size);
+  auto& ss = output_->get_common_secret_share();
+  for (auto share : owned_shares[my_id]) {
+    //ss[share] = -1*(share + 10);
+    // TODO(pranav): Change this when signed integers are supported.
+    ss[share] = 0;
+  }
+
   output_->set_setup_ready();
 
   input_A_->wait_setup();
   input_B_->wait_setup();
-
-  const auto& delta_a_share = input_A_->get_secret_share();
-  const auto& delta_b_share = input_B_->get_secret_share();
-  const auto& delta_y_share = output_->get_secret_share();
-
-  if (!beavy_provider_.get_fake_setup()) {
-    mm_lhs_side_->set_input(delta_a_share);
-    mm_rhs_side_->set_input(delta_b_share);
+  const auto& input_a_ss = input_A_->get_common_secret_share();
+  const auto& input_b_ss = input_B_->get_common_secret_share();
+  if (my_id == p_king) {
+    shares_from_D_.resize(gemm_op_.compute_output_size(), 0);
+    for (std::size_t party = (num_parties / 2) + 1; party < num_parties; ++party) {
+      auto v = share_future_[party].get();
+      assert(v.size() == shares_from_D_.size());
+      for (int i = 0; i < shares_from_D_.size(); ++i) {
+        shares_from_D_[i] += v[i];
+      }
+    }
+  } else if (my_id > (num_parties / 2)) {
+    std::size_t pking_share = 0;
+    for (const auto [i, j]: mul_shares[my_id]) {
+      pking_share += (input_a_ss[i] * input_b_ss[j]);
+    }
+    std::vector<T> v(gemm_op_.compute_output_size(), pking_share);
+    beavy_provider_.send_ints_message(p_king, gate_id_, v);
   }
-
-  // [Delta_y]_i = [delta_a]_i * [delta_b]_i
-  matrix_multiply(gemm_op_, delta_a_share.data(), delta_b_share.data(), Delta_y_share_.data());
-
-  if (fractional_bits_ == 0) {
-    // [Delta_y]_i += [delta_y]_i
-    __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
-                              std::begin(delta_y_share), std::begin(Delta_y_share_), std::plus{});
-    // NB: happens after truncation if that is requested
-  }
-
-  if (!beavy_provider_.get_fake_setup()) {
-    mm_lhs_side_->compute_output();
-    mm_rhs_side_->compute_output();
-  }
-  std::vector<T> delta_ab_share1;
-  std::vector<T> delta_ab_share2;
-  if (beavy_provider_.get_fake_setup()) {
-    delta_ab_share1 = Helpers::RandomVector<T>(gemm_op_.compute_output_size());
-    delta_ab_share2 = Helpers::RandomVector<T>(gemm_op_.compute_output_size());
-  } else {
-    // [[delta_a]_i * [delta_b]_(1-i)]_i
-    delta_ab_share1 = mm_lhs_side_->get_output();
-    // [[delta_b]_i * [delta_a]_(1-i)]_i
-    delta_ab_share2 = mm_rhs_side_->get_output();
-  }
-  // [Delta_y]_i += [[delta_a]_i * [delta_b]_(1-i)]_i
-  __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
-                            std::begin(delta_ab_share1), std::begin(Delta_y_share_), std::plus{});
-  // [Delta_y]_i += [[delta_b]_i * [delta_a]_(1-i)]_i
-  __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
-                            std::begin(delta_ab_share2), std::begin(Delta_y_share_), std::plus{});
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
@@ -673,50 +663,115 @@ void ArithmeticBEAVYTensorGemm<T>::evaluate_online() {
   }
 
   const auto output_size = gemm_op_.compute_output_size();
+  auto my_id = beavy_provider_.get_my_id();
+  auto p_king = beavy_provider_.get_p_king();
+  std::size_t num_parties = beavy_provider_.get_num_parties();
+  auto& owned_shares = beavy_provider_.get_owned_shares();
+  auto& mul_shares = beavy_provider_.get_mup_shares_for_p_king();
+  auto& pking_shares = beavy_provider_.get_shares_for_p_king();
+
+  if (my_id > num_parties / 2) {
+    output_->set_online_ready();
+    return;
+  }
   input_A_->wait_online();
   input_B_->wait_online();
-  const auto& Delta_a = input_A_->get_public_share();
-  const auto& Delta_b = input_B_->get_public_share();
-  const auto& delta_a_share = input_A_->get_secret_share();
-  const auto& delta_b_share = input_B_->get_secret_share();
-  std::vector<T> tmp(output_size);
+  const auto& pa = input_A_->get_public_share();
+  const auto& pb = input_B_->get_public_share();
+  const auto& sa = input_A_->get_common_secret_share();
+  const auto& sb = input_B_->get_common_secret_share();
+  auto& oa = output_->get_public_share();
+  const auto& so = output_->get_common_secret_share();
 
-  // after setup phase, `Delta_y_share_` contains [delta_y]_i + [delta_ab]_i
+  if (my_id == p_king) {
+    matrix_multiply(gemm_op_, pa.data(), pb.data(), oa.data());
+    assert(oa.size() == shares_from_D_.size());
+    __gnu_parallel::transform(oa.begin(), oa.end(),
+     shares_from_D_.begin(),
+      oa.begin(), std::plus{});
+      for (const auto share : owned_shares[my_id]) {
+        std::vector<T> ssb(pb.size(), sb[share]);
+        std::vector<T> ssa(pa.size(), sa[share]);
+        std::vector<T> public_a_times_sec_b(oa.size(), 0);
+        std::vector<T> public_b_times_sec_a(oa.size(), 0);
+        matrix_multiply(gemm_op_, pa.data(), ssb.data(), public_a_times_sec_b.data());
+        matrix_multiply(gemm_op_, ssa.data(), pb.data(), public_b_times_sec_a.data());
+        assert(public_a_times_sec_b.size() == oa.size());
+        assert(public_b_times_sec_a.size() == oa.size());
+        __gnu_parallel::transform(oa.begin(), oa.end(),
+        public_a_times_sec_b.begin(),
+          oa.begin(), std::minus<T>());
+          __gnu_parallel::transform(oa.begin(), oa.end(),
+        public_b_times_sec_a.begin(),
+          oa.begin(), std::minus<T>());
+        std::vector<T> rnd(oa.size(), so[share]);
+        __gnu_parallel::transform(oa.begin(), oa.end(),
+        rnd.begin(),
+          oa.begin(), std::plus<T>());
+        for (const auto share2: owned_shares[my_id]) {
+          std::vector<T> ssb2(pb.size(), sb[share2]);
+          // std::vector<T> ssa2(pa.size(), sa[share2]);
+          std::vector<T> ssa_ssb(oa.size(), 0);
+          matrix_multiply(gemm_op_, ssa.data(), ssb2.data(), ssa_ssb.data());
+          __gnu_parallel::transform(oa.begin(), oa.end(),
+          ssa_ssb.begin(),
+          oa.begin(), std::plus<T>());
+        }
+      }
 
-  // [Delta_y]_i -= Delta_a * [delta_b]_i
-  matrix_multiply(gemm_op_, Delta_a.data(), delta_b_share.data(), tmp.data());
-  __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_), std::begin(tmp),
-                            std::begin(Delta_y_share_), std::minus{});
+    // get others shares.
+    for (std::size_t party = 0; party <= (num_parties / 2); ++party) {
+      if (party == my_id) continue;
+      auto other_share = share_future_[party].get();
+      assert(other_share.size() == oa.size());
+      __gnu_parallel::transform(oa.begin(), oa.end(),
+          other_share.begin(),
+          oa.begin(), std::plus<T>());
+    }
+    // send to other parties in E.
+    for (std::size_t party = 0; party <= (num_parties / 2); ++party) {
+      if (party == my_id) continue;
+      beavy_provider_.send_ints_message(party, gate_id_, oa);
+    }
+  } else {
+    // Send the shares to pking.
+    std::vector<T> for_pking(oa.size(), 0);
+    for (const auto share : pking_shares[my_id]) {
+      std::vector<T> ssb(pb.size(), sb[share]);
+      std::vector<T> ssa(pa.size(), sa[share]);
+      std::vector<T> public_a_times_sec_b(oa.size(), 0);
+      std::vector<T> public_b_times_sec_a(oa.size(), 0);
+      matrix_multiply(gemm_op_, pa.data(), ssb.data(), public_a_times_sec_b.data());
+      matrix_multiply(gemm_op_, ssa.data(), pb.data(), public_b_times_sec_a.data());
+      assert(public_a_times_sec_b.size() == for_pking.size());
+      assert(public_b_times_sec_a.size() == for_pking.size());
+      __gnu_parallel::transform(for_pking.begin(), for_pking.end(),
+          public_a_times_sec_b.begin(),
+          for_pking.begin(), std::minus<T>());
+      __gnu_parallel::transform(for_pking.begin(), for_pking.end(),
+          public_b_times_sec_a.begin(),
+          for_pking.begin(), std::minus<T>());
+      std::vector<T> rnd(for_pking.size(), so[share]);
+      __gnu_parallel::transform(for_pking.begin(), for_pking.end(),
+      rnd.begin(),
+        for_pking.begin(), std::plus<T>());
+    }
+    for (const auto [i, j] : mul_shares[my_id]) {
+      std::vector<T> ssb(pb.size(), sb[j]);
+      std::vector<T> ssa(pa.size(), sa[i]);
+      std::vector<T> ssa_ssb(oa.size(), 0);
+      matrix_multiply(gemm_op_, ssa.data(), ssb.data(), ssa_ssb.data());
+      __gnu_parallel::transform(for_pking.begin(), for_pking.end(),
+          ssa_ssb.begin(),
+          for_pking.begin(), std::plus<T>());
+    }
+    beavy_provider_.send_ints_message(p_king, gate_id_, for_pking);
+    // recieve the shares from pking.
 
-  // [Delta_y]_i -= Delta_b * [delta_a]_i
-  matrix_multiply(gemm_op_, delta_a_share.data(), Delta_b.data(), tmp.data());
-  __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_), std::begin(tmp),
-                            std::begin(Delta_y_share_), std::minus{});
-
-  // [Delta_y]_i += Delta_ab (== Delta_a * Delta_b)
-  if (beavy_provider_.is_my_job(gate_id_)) {
-    matrix_multiply(gemm_op_, Delta_a.data(), Delta_b.data(), tmp.data());
-    __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_), std::begin(tmp),
-                              std::begin(Delta_y_share_), std::plus{});
+    oa = share_future_[p_king].get();
   }
 
-  if (fractional_bits_ > 0) {
-    fixed_point::truncate_shared<T>(Delta_y_share_.data(), fractional_bits_, Delta_y_share_.size(),
-                                    beavy_provider_.is_my_job(gate_id_));
-    // [Delta_y]_i += [delta_y]_i
-    __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
-                              std::begin(output_->get_secret_share()), std::begin(Delta_y_share_),
-                              std::plus{});
-    // NB: happens in setup phase if no truncation is requested
-  }
-
-  // broadcast [Delta_y]_i
-  beavy_provider_.broadcast_ints_message(gate_id_, Delta_y_share_);
-  // Delta_y = [Delta_y]_i + [Delta_y]_(1-i)
-  __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
-                            std::begin(share_future_.get()), std::begin(Delta_y_share_),
-                            std::plus{});
-  output_->get_public_share() = std::move(Delta_y_share_);
+  // handle the fractional bits part as well. (maybe later)
   output_->set_online_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
