@@ -72,3 +72,4 @@ dbg/bin/mpclan_multiplication
 dbg/bin/a_to_b_conversion
 dbg/bin/mpclan_and
 dbg/bin/tensor_relu
+dbg/bin/tensor_gemm
