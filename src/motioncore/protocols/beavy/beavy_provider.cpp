@@ -1010,7 +1010,6 @@ tensor::TensorCP BEAVYProvider::make_tensor_conversion(MPCProtocol dst_proto,
   if (src_proto == MPCProtocol::BooleanBEAVY && dst_proto == MPCProtocol::ArithmeticBEAVY) {
     return make_convert_boolean_to_arithmetic_beavy_tensor(input);
   } else if (src_proto == MPCProtocol::ArithmeticBEAVY && dst_proto == MPCProtocol::BooleanBEAVY) {
-    std::cout << "Entering here! Very important!" << std::endl;
     return make_convert_arithmetic_to_boolean_beavy_tensor(input);
   }
   throw std::invalid_argument(fmt::format("BEAVYProvider: cannot convert tensor from {} to {}",
