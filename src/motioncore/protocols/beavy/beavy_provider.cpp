@@ -91,7 +91,6 @@ BEAVYProvider::BEAVYProvider(Communication::CommunicationLayer& communication_la
     for (std::size_t party = 0; party < num_parties_; party++) {
       if ((subset&(1LL << party)) == 0) {
         owned_shares_[party].push_back(total_shares_);
-        std::cout <<"Print share index : "<< total_shares_;
         if (p_king_needs_share && !sent_to_p_king && party <= t
         && party != p_king_) {
           shares_for_p_king_[party].push_back(total_shares_);
@@ -130,9 +129,6 @@ BEAVYProvider::BEAVYProvider(Communication::CommunicationLayer& communication_la
       ++total_shares2;
     }
     ++total_shares_;
-  }
-  for (int i = 0; i < num_parties_; ++i) {
-    std::cout << "Party " << i << " owned shares : " << owned_shares_[i].size() << ", pking share : " << shares_for_p_king_[i].size() << std::endl;
   }
   std::cout << "MPCLan Provider: Total shares: " << total_shares_ << std::endl;
   // TODO: instead of printing, assert(total_shares_ = N_Choose_T).
@@ -976,8 +972,8 @@ void BEAVYProvider::make_arithmetic_tensor_output_other(const tensor::TensorCP& 
 
 tensor::TensorCP BEAVYProvider::make_tensor_flatten_op(const tensor::TensorCP input,
                                                        std::size_t axis) {
-  if (axis > 4) {
-    throw std::invalid_argument("invalid axis argument > 4");
+  if (axis > 6) {
+    throw std::invalid_argument("invalid axis argument > 6");
   }
   auto bit_size = input->get_bit_size();
   std::unique_ptr<NewGate> gate;
@@ -1292,7 +1288,6 @@ tensor::TensorCP BEAVYProvider::make_convert_arithmetic_to_boolean_beavy_tensor(
       break;
     }
     case 64: {
-      std::cout << "Bit size is 64!" << std::endl;
       return basic_make_convert_arithmetic_to_boolean_beavy_tensor<std::uint64_t>(std::move(in));
       break;
     }
