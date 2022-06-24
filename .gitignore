@@ -73,3 +73,5 @@ dbg/bin/a_to_b_conversion
 dbg/bin/mpclan_and
 dbg/bin/tensor_relu
 dbg/bin/tensor_gemm
+dbg/bin/lenet
+dbg/bin/nn_fully_connected
