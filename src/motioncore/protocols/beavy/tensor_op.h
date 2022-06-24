@@ -174,8 +174,9 @@ class ArithmeticBEAVYTensorConv2D : public NewGate {
   const ArithmeticBEAVYTensorCP<T> kernel_;
   const ArithmeticBEAVYTensorCP<T> bias_;
   std::shared_ptr<ArithmeticBEAVYTensor<T>> output_;
-  ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_;
-  std::vector<T> Delta_y_share_;
+  std::vector<ENCRYPTO::ReusableFiberFuture<std::vector<T>>> share_future_;
+  // std::vector<T> Delta_y_share_;
+  std::vector<T> shares_from_D_;
   std::unique_ptr<MOTION::ConvolutionInputSide<T>> conv_input_side_;
   std::unique_ptr<MOTION::ConvolutionKernelSide<T>> conv_kernel_side_;
 };

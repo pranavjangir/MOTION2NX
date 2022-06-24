@@ -326,7 +326,7 @@ ArithmeticBEAVYTensorFlatten<T>::ArithmeticBEAVYTensorFlatten(
     const ArithmeticBEAVYTensorCP<T> input)
     : NewGate(gate_id), beavy_provider_(beavy_provider), input_(input) {
   const auto& input_dims = input_->get_dimensions();
-  output_ = std::make_shared<ArithmeticBEAVYTensor<T>>(flatten(input_dims, axis));
+  output_ = std::make_shared<ArithmeticBEAVYTensor<T>>(flatten(input_dims, axis), beavy_provider.get_num_parties());
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
@@ -348,6 +348,7 @@ void ArithmeticBEAVYTensorFlatten<T>::evaluate_setup() {
 
   input_->wait_setup();
   output_->get_secret_share() = input_->get_secret_share();
+  output_->get_common_secret_share() = input_->get_common_secret_share();
   output_->set_setup_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
@@ -397,16 +398,26 @@ ArithmeticBEAVYTensorConv2D<T>::ArithmeticBEAVYTensorConv2D(
       input_(input),
       kernel_(kernel),
       bias_(bias),
-      output_(std::make_shared<ArithmeticBEAVYTensor<T>>(conv_op.get_output_tensor_dims())) {
+      output_(std::make_shared<ArithmeticBEAVYTensor<T>>(conv_op.get_output_tensor_dims(), beavy_provider.get_num_parties())) {
+  // const auto my_id = beavy_provider_.get_my_id();
+  // const auto output_size = conv_op_.compute_output_size();
+  // share_future_ = beavy_provider_.register_for_ints_message<T>(1 - my_id, gate_id_, output_size);
+  // auto& ap = beavy_provider_.get_arith_manager().get_provider(1 - my_id);
+  // if (!beavy_provider_.get_fake_setup()) {
+  //   conv_input_side_ = ap.template register_convolution_input_side<T>(conv_op);
+  //   conv_kernel_side_ = ap.template register_convolution_kernel_side<T>(conv_op);
+  // }
+  // Delta_y_share_.resize(output_size);
   const auto my_id = beavy_provider_.get_my_id();
+  const auto p_king = beavy_provider_.get_p_king();
+  const auto num_parties = beavy_provider_.get_num_parties();
   const auto output_size = conv_op_.compute_output_size();
-  share_future_ = beavy_provider_.register_for_ints_message<T>(1 - my_id, gate_id_, output_size);
-  auto& ap = beavy_provider_.get_arith_manager().get_provider(1 - my_id);
-  if (!beavy_provider_.get_fake_setup()) {
-    conv_input_side_ = ap.template register_convolution_input_side<T>(conv_op);
-    conv_kernel_side_ = ap.template register_convolution_kernel_side<T>(conv_op);
+  share_future_.resize(num_parties);
+  if (my_id == p_king) {
+    share_future_ = beavy_provider_.register_for_ints_messages<T>(gate_id_, output_size);
+  } else if (my_id <= (num_parties / 2)) {
+    share_future_[p_king] = beavy_provider_.register_for_ints_message<T>(p_king, gate_id_, output_size);
   }
-  Delta_y_share_.resize(output_size);
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
@@ -429,54 +440,91 @@ void ArithmeticBEAVYTensorConv2D<T>::evaluate_setup() {
     }
   }
 
-  const auto output_size = conv_op_.compute_output_size();
+  // const auto output_size = conv_op_.compute_output_size();
 
-  output_->get_secret_share() = Helpers::RandomVector<T>(output_size);
+  // output_->get_secret_share() = Helpers::RandomVector<T>(output_size);
+  // output_->set_setup_ready();
+
+  // input_->wait_setup();
+  // kernel_->wait_setup();
+
+  // const auto& delta_a_share = input_->get_secret_share();
+  // const auto& delta_b_share = kernel_->get_secret_share();
+  // const auto& delta_y_share = output_->get_secret_share();
+
+  // if (!beavy_provider_.get_fake_setup()) {
+  //   conv_input_side_->set_input(delta_a_share);
+  //   conv_kernel_side_->set_input(delta_b_share);
+  // }
+
+  // // [Delta_y]_i = [delta_a]_i * [delta_b]_i
+  // convolution(conv_op_, delta_a_share.data(), delta_b_share.data(), Delta_y_share_.data());
+
+  // if (fractional_bits_ == 0) {
+  //   // [Delta_y]_i += [delta_y]_i
+  //   __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
+  //                             std::begin(delta_y_share), std::begin(Delta_y_share_), std::plus{});
+  //   // NB: happens after truncation if that is requested
+  // }
+
+  // if (!beavy_provider_.get_fake_setup()) {
+  //   conv_input_side_->compute_output();
+  //   conv_kernel_side_->compute_output();
+  // }
+  // std::vector<T> delta_ab_share1;
+  // std::vector<T> delta_ab_share2;
+  // if (beavy_provider_.get_fake_setup()) {
+  //   delta_ab_share1 = Helpers::RandomVector<T>(conv_op_.compute_output_size());
+  //   delta_ab_share2 = Helpers::RandomVector<T>(conv_op_.compute_output_size());
+  // } else {
+  //   // [[delta_a]_i * [delta_b]_(1-i)]_i
+  //   delta_ab_share1 = conv_input_side_->get_output();
+  //   // [[delta_b]_i * [delta_a]_(1-i)]_i
+  //   delta_ab_share2 = conv_kernel_side_->get_output();
+  // }
+  // // [Delta_y]_i += [[delta_a]_i * [delta_b]_(1-i)]_i
+  // __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
+  //                           std::begin(delta_ab_share1), std::begin(Delta_y_share_), std::plus{});
+  // // [Delta_y]_i += [[delta_b]_i * [delta_a]_(1-i)]_i
+  // __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
+  //                           std::begin(delta_ab_share2), std::begin(Delta_y_share_), std::plus{});
+
+  auto my_id = beavy_provider_.get_my_id();
+  auto p_king = beavy_provider_.get_p_king();
+  std::size_t num_parties = beavy_provider_.get_num_parties();
+  auto& owned_shares = beavy_provider_.get_owned_shares();
+  auto& mul_shares = beavy_provider_.get_mup_shares_for_p_king();
+
+  auto& ss = output_->get_common_secret_share();
+  for (auto share : owned_shares[my_id]) {
+    //ss[share] = -1*(share + 10);
+    // TODO(pranav): Change this when signed integers are supported.
+    ss[share] = 0;
+  }
+
   output_->set_setup_ready();
 
   input_->wait_setup();
   kernel_->wait_setup();
-
-  const auto& delta_a_share = input_->get_secret_share();
-  const auto& delta_b_share = kernel_->get_secret_share();
-  const auto& delta_y_share = output_->get_secret_share();
-
-  if (!beavy_provider_.get_fake_setup()) {
-    conv_input_side_->set_input(delta_a_share);
-    conv_kernel_side_->set_input(delta_b_share);
+  const auto& input_a_ss = input_->get_common_secret_share();
+  const auto& input_b_ss = kernel_->get_common_secret_share();
+  if (my_id == p_king) {
+    shares_from_D_.resize(conv_op_.compute_output_size(), 0);
+    for (std::size_t party = (num_parties / 2) + 1; party < num_parties; ++party) {
+      auto v = share_future_[party].get();
+      assert(v.size() == shares_from_D_.size());
+      for (int i = 0; i < shares_from_D_.size(); ++i) {
+        shares_from_D_[i] += v[i];
+      }
+    }
+  } else if (my_id > (num_parties / 2)) {
+    std::size_t pking_share = 0;
+    for (const auto [i, j]: mul_shares[my_id]) {
+      pking_share += (input_a_ss[i] * input_b_ss[j]);
+    }
+    std::vector<T> v(conv_op_.compute_output_size(), pking_share);
+    beavy_provider_.send_ints_message(p_king, gate_id_, v);
   }
-
-  // [Delta_y]_i = [delta_a]_i * [delta_b]_i
-  convolution(conv_op_, delta_a_share.data(), delta_b_share.data(), Delta_y_share_.data());
-
-  if (fractional_bits_ == 0) {
-    // [Delta_y]_i += [delta_y]_i
-    __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
-                              std::begin(delta_y_share), std::begin(Delta_y_share_), std::plus{});
-    // NB: happens after truncation if that is requested
-  }
-
-  if (!beavy_provider_.get_fake_setup()) {
-    conv_input_side_->compute_output();
-    conv_kernel_side_->compute_output();
-  }
-  std::vector<T> delta_ab_share1;
-  std::vector<T> delta_ab_share2;
-  if (beavy_provider_.get_fake_setup()) {
-    delta_ab_share1 = Helpers::RandomVector<T>(conv_op_.compute_output_size());
-    delta_ab_share2 = Helpers::RandomVector<T>(conv_op_.compute_output_size());
-  } else {
-    // [[delta_a]_i * [delta_b]_(1-i)]_i
-    delta_ab_share1 = conv_input_side_->get_output();
-    // [[delta_b]_i * [delta_a]_(1-i)]_i
-    delta_ab_share2 = conv_kernel_side_->get_output();
-  }
-  // [Delta_y]_i += [[delta_a]_i * [delta_b]_(1-i)]_i
-  __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
-                            std::begin(delta_ab_share1), std::begin(Delta_y_share_), std::plus{});
-  // [Delta_y]_i += [[delta_b]_i * [delta_a]_(1-i)]_i
-  __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
-                            std::begin(delta_ab_share2), std::begin(Delta_y_share_), std::plus{});
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
@@ -497,51 +545,163 @@ void ArithmeticBEAVYTensorConv2D<T>::evaluate_online() {
     }
   }
 
+  // const auto output_size = conv_op_.compute_output_size();
+  // input_->wait_online();
+  // kernel_->wait_online();
+  // const auto& Delta_a = input_->get_public_share();
+  // const auto& Delta_b = kernel_->get_public_share();
+  // const auto& delta_a_share = input_->get_secret_share();
+  // const auto& delta_b_share = kernel_->get_secret_share();
+  // std::vector<T> tmp(output_size);
+
+  // // after setup phase, `Delta_y_share_` contains [delta_y]_i + [delta_ab]_i
+
+  // // [Delta_y]_i -= Delta_a * [delta_b]_i
+  // convolution(conv_op_, Delta_a.data(), delta_b_share.data(), tmp.data());
+  // __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_), std::begin(tmp),
+  //                           std::begin(Delta_y_share_), std::minus{});
+
+  // // [Delta_y]_i -= Delta_b * [delta_a]_i
+  // convolution(conv_op_, delta_a_share.data(), Delta_b.data(), tmp.data());
+  // __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_), std::begin(tmp),
+  //                           std::begin(Delta_y_share_), std::minus{});
+
+  // // [Delta_y]_i += Delta_ab (== Delta_a * Delta_b)
+  // if (beavy_provider_.is_my_job(gate_id_)) {
+  //   convolution(conv_op_, Delta_a.data(), Delta_b.data(), tmp.data());
+  //   __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_), std::begin(tmp),
+  //                             std::begin(Delta_y_share_), std::plus{});
+  // }
+
+  // if (fractional_bits_ > 0) {
+  //   fixed_point::truncate_shared<T>(Delta_y_share_.data(), fractional_bits_, Delta_y_share_.size(),
+  //                                   beavy_provider_.is_my_job(gate_id_));
+  //   // [Delta_y]_i += [delta_y]_i
+  //   __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
+  //                             std::begin(output_->get_secret_share()), std::begin(Delta_y_share_),
+  //                             std::plus{});
+  //   // NB: happens in setup phase if no truncation is requested
+  // }
+
+  // // broadcast [Delta_y]_i
+  // beavy_provider_.broadcast_ints_message(gate_id_, Delta_y_share_);
+  // // Delta_y = [Delta_y]_i + [Delta_y]_(1-i)
+  // __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
+  //                           std::begin(share_future_.get()), std::begin(Delta_y_share_),
+  //                           std::plus{});
+  // output_->get_public_share() = std::move(Delta_y_share_);
+  // output_->set_online_ready();
+
   const auto output_size = conv_op_.compute_output_size();
+  auto my_id = beavy_provider_.get_my_id();
+  auto p_king = beavy_provider_.get_p_king();
+  std::size_t num_parties = beavy_provider_.get_num_parties();
+  auto& owned_shares = beavy_provider_.get_owned_shares();
+  auto& mul_shares = beavy_provider_.get_mup_shares_for_p_king();
+  auto& pking_shares = beavy_provider_.get_shares_for_p_king();
+
+  if (my_id > num_parties / 2) {
+    output_->set_online_ready();
+    return;
+  }
   input_->wait_online();
   kernel_->wait_online();
-  const auto& Delta_a = input_->get_public_share();
-  const auto& Delta_b = kernel_->get_public_share();
-  const auto& delta_a_share = input_->get_secret_share();
-  const auto& delta_b_share = kernel_->get_secret_share();
-  std::vector<T> tmp(output_size);
+  const auto& pa = input_->get_public_share();
+  const auto& pb = kernel_->get_public_share();
+  const auto& sa = input_->get_common_secret_share();
+  const auto& sb = kernel_->get_common_secret_share();
+  auto& oa = output_->get_public_share();
+  const auto& so = output_->get_common_secret_share();
 
-  // after setup phase, `Delta_y_share_` contains [delta_y]_i + [delta_ab]_i
+  if (my_id == p_king) {
+    convolution(conv_op_, pa.data(), pb.data(), oa.data());
+    assert(oa.size() == shares_from_D_.size());
+    __gnu_parallel::transform(oa.begin(), oa.end(),
+     shares_from_D_.begin(),
+      oa.begin(), std::plus{});
+      for (const auto share : owned_shares[my_id]) {
+        std::vector<T> ssb(pb.size(), sb[share]);
+        std::vector<T> ssa(pa.size(), sa[share]);
+        std::vector<T> public_a_times_sec_b(oa.size(), 0);
+        std::vector<T> public_b_times_sec_a(oa.size(), 0);
+        convolution(conv_op_, pa.data(), ssb.data(), public_a_times_sec_b.data());
+        convolution(conv_op_, ssa.data(), pb.data(), public_b_times_sec_a.data());
+        assert(public_a_times_sec_b.size() == oa.size());
+        assert(public_b_times_sec_a.size() == oa.size());
+        __gnu_parallel::transform(oa.begin(), oa.end(),
+        public_a_times_sec_b.begin(),
+          oa.begin(), std::minus<T>());
+          __gnu_parallel::transform(oa.begin(), oa.end(),
+        public_b_times_sec_a.begin(),
+          oa.begin(), std::minus<T>());
+        std::vector<T> rnd(oa.size(), so[share]);
+        __gnu_parallel::transform(oa.begin(), oa.end(),
+        rnd.begin(),
+          oa.begin(), std::plus<T>());
+        for (const auto share2: owned_shares[my_id]) {
+          std::vector<T> ssb2(pb.size(), sb[share2]);
+          // std::vector<T> ssa2(pa.size(), sa[share2]);
+          std::vector<T> ssa_ssb(oa.size(), 0);
+          convolution(conv_op_, ssa.data(), ssb2.data(), ssa_ssb.data());
+          __gnu_parallel::transform(oa.begin(), oa.end(),
+          ssa_ssb.begin(),
+          oa.begin(), std::plus<T>());
+        }
+      }
 
-  // [Delta_y]_i -= Delta_a * [delta_b]_i
-  convolution(conv_op_, Delta_a.data(), delta_b_share.data(), tmp.data());
-  __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_), std::begin(tmp),
-                            std::begin(Delta_y_share_), std::minus{});
+    // get others shares.
+    for (std::size_t party = 0; party <= (num_parties / 2); ++party) {
+      if (party == my_id) continue;
+      auto other_share = share_future_[party].get();
+      assert(other_share.size() == oa.size());
+      __gnu_parallel::transform(oa.begin(), oa.end(),
+          other_share.begin(),
+          oa.begin(), std::plus<T>());
+    }
+    // send to other parties in E.
+    for (std::size_t party = 0; party <= (num_parties / 2); ++party) {
+      if (party == my_id) continue;
+      beavy_provider_.send_ints_message(party, gate_id_, oa);
+    }
+  } else {
+    // Send the shares to pking.
+    std::vector<T> for_pking(oa.size(), 0);
+    for (const auto share : pking_shares[my_id]) {
+      std::vector<T> ssb(pb.size(), sb[share]);
+      std::vector<T> ssa(pa.size(), sa[share]);
+      std::vector<T> public_a_times_sec_b(oa.size(), 0);
+      std::vector<T> public_b_times_sec_a(oa.size(), 0);
+      convolution(conv_op_, pa.data(), ssb.data(), public_a_times_sec_b.data());
+      convolution(conv_op_, ssa.data(), pb.data(), public_b_times_sec_a.data());
+      assert(public_a_times_sec_b.size() == for_pking.size());
+      assert(public_b_times_sec_a.size() == for_pking.size());
+      __gnu_parallel::transform(for_pking.begin(), for_pking.end(),
+          public_a_times_sec_b.begin(),
+          for_pking.begin(), std::minus<T>());
+      __gnu_parallel::transform(for_pking.begin(), for_pking.end(),
+          public_b_times_sec_a.begin(),
+          for_pking.begin(), std::minus<T>());
+      std::vector<T> rnd(for_pking.size(), so[share]);
+      __gnu_parallel::transform(for_pking.begin(), for_pking.end(),
+      rnd.begin(),
+        for_pking.begin(), std::plus<T>());
+    }
+    for (const auto [i, j] : mul_shares[my_id]) {
+      std::vector<T> ssb(pb.size(), sb[j]);
+      std::vector<T> ssa(pa.size(), sa[i]);
+      std::vector<T> ssa_ssb(oa.size(), 0);
+      convolution(conv_op_, ssa.data(), ssb.data(), ssa_ssb.data());
+      __gnu_parallel::transform(for_pking.begin(), for_pking.end(),
+          ssa_ssb.begin(),
+          for_pking.begin(), std::plus<T>());
+    }
+    beavy_provider_.send_ints_message(p_king, gate_id_, for_pking);
+    // recieve the shares from pking.
 
-  // [Delta_y]_i -= Delta_b * [delta_a]_i
-  convolution(conv_op_, delta_a_share.data(), Delta_b.data(), tmp.data());
-  __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_), std::begin(tmp),
-                            std::begin(Delta_y_share_), std::minus{});
-
-  // [Delta_y]_i += Delta_ab (== Delta_a * Delta_b)
-  if (beavy_provider_.is_my_job(gate_id_)) {
-    convolution(conv_op_, Delta_a.data(), Delta_b.data(), tmp.data());
-    __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_), std::begin(tmp),
-                              std::begin(Delta_y_share_), std::plus{});
+    oa = share_future_[p_king].get();
   }
 
-  if (fractional_bits_ > 0) {
-    fixed_point::truncate_shared<T>(Delta_y_share_.data(), fractional_bits_, Delta_y_share_.size(),
-                                    beavy_provider_.is_my_job(gate_id_));
-    // [Delta_y]_i += [delta_y]_i
-    __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
-                              std::begin(output_->get_secret_share()), std::begin(Delta_y_share_),
-                              std::plus{});
-    // NB: happens in setup phase if no truncation is requested
-  }
-
-  // broadcast [Delta_y]_i
-  beavy_provider_.broadcast_ints_message(gate_id_, Delta_y_share_);
-  // Delta_y = [Delta_y]_i + [Delta_y]_(1-i)
-  __gnu_parallel::transform(std::begin(Delta_y_share_), std::end(Delta_y_share_),
-                            std::begin(share_future_.get()), std::begin(Delta_y_share_),
-                            std::plus{});
-  output_->get_public_share() = std::move(Delta_y_share_);
+  // handle the fractional bits part as well. (maybe later)
   output_->set_online_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
@@ -581,9 +741,6 @@ ArithmeticBEAVYTensorGemm<T>::ArithmeticBEAVYTensorGemm(std::size_t gate_id,
   } else if (my_id <= (num_parties / 2)) {
     share_future_[p_king] = beavy_provider_.register_for_ints_message<T>(p_king, gate_id_, output_size);
   }
-  // const auto dim_l = gemm_op_.input_A_shape_[0];
-  // const auto dim_m = gemm_op_.input_A_shape_[1];
-  // const auto dim_n = gemm_op_.input_B_shape_[1];
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = beavy_provider_.get_logger();
@@ -1079,7 +1236,7 @@ BooleanToArithmeticBEAVYTensorConversion<T>::BooleanToArithmeticBEAVYTensorConve
   if (my_id == p_king) {
     // share_future_ = beavy_provider_.register_for_ints_messages<T>(gate_id_, data_size_);
     bits_share_future_ = beavy_provider_.register_for_bits_messages(
-      gate_id_, input_->get_bit_size() * data_size_ * bit_size_);
+      gate_id_, data_size_ * bit_size_);
   } else if (my_id <= num_parties / 2) {
     share_future_ = beavy_provider_.register_for_ints_message<T>(p_king, gate_id_, data_size_ * bit_size_);
   }
@@ -1363,12 +1520,10 @@ void ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_online_with_context(E
   const auto& owned_shares = beavy_provider_.get_owned_shares();
   const auto& shares_for_p_king = beavy_provider_.get_shares_for_p_king();
 
-  std::cout << "Start the Input wait!" << std::endl;
   input_->wait_setup();
   input_->wait_online();
   // This value will be converted to binary format.
   std::vector<T> Z_minus_r;
-  std::cout << "Input wait over!" << std::endl;
 
   if (my_id == p_king) {
     Z_minus_r = input_->get_public_share();
@@ -1388,12 +1543,10 @@ void ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_online_with_context(E
       __gnu_parallel::transform(std::begin(Z_minus_r), std::end(Z_minus_r),
                                 std::begin(party_share),
                             std::begin(Z_minus_r), std::minus<T>());
-      std::cout << "recieved the shares from party." << std::endl;
     }
     for (int party = 0; party <= (num_parties / 2); ++party) {
       if (party == my_id) continue;
       beavy_provider_.send_ints_message(party, gate_id_, Z_minus_r);
-      std::cout << "sent the shares to party." << std::endl;
     }
 
   } else if (my_id <= (num_parties / 2)) {
@@ -1433,7 +1586,6 @@ void ArithmeticToBooleanBEAVYTensorConversion<T>::evaluate_online_with_context(E
       output_public_[bit_pos]->set_online_ready();
       output_random_[bit_pos]->set_online_ready();
     }
-    std::cout << "Addition gate online begins!" << std::endl;
     for (auto& gate : gates_) {
       exec_ctx.fpool_->post([&] { gate->evaluate_online(); });
     }
@@ -2182,7 +2334,7 @@ BooleanBEAVYTensorMaxPool::BooleanBEAVYTensorMaxPool(std::size_t gate_id,
       data_size_(input->get_dimensions().get_data_size()),
       input_(input),
       output_(
-          std::make_shared<BooleanBEAVYTensor>(maxpool_op_.get_output_tensor_dims(), bit_size_)),
+          std::make_shared<BooleanBEAVYTensor>(maxpool_op_.get_output_tensor_dims(), bit_size_, beavy_provider.get_num_parties())),
       // XXX: use depth-optimized circuit here
       maxpool_algo_(beavy_provider_.get_circuit_loader().load_maxpool_circuit(
           bit_size_, maxpool_op_.compute_kernel_size(), true)) {
@@ -2192,8 +2344,8 @@ BooleanBEAVYTensorMaxPool::BooleanBEAVYTensorMaxPool(std::size_t gate_id,
   const auto kernel_size = maxpool_op_.compute_kernel_size();
   const auto output_size = maxpool_op_.compute_output_size();
   input_wires_.resize(bit_size_ * kernel_size);
-  std::generate(std::begin(input_wires_), std::end(input_wires_), [output_size] {
-    auto w = std::make_shared<BooleanBEAVYWire>(output_size);
+  std::generate(std::begin(input_wires_), std::end(input_wires_), [output_size, this] {
+    auto w = std::make_shared<BooleanBEAVYWire>(output_size, beavy_provider_.get_num_parties());
     w->get_secret_share().Resize(output_size);
     w->get_public_share().Resize(output_size);
     return w;
@@ -2261,11 +2413,13 @@ static void prepare_wires(std::size_t bit_size, const tensor::MaxPoolOp& maxpool
         for (std::size_t o_col = 0; o_col < output_shape[2]; ++o_col) {
           for (std::size_t k_row = 0; k_row < kernel_shape[0]; ++k_row) {
             for (std::size_t k_col = 0; k_col < kernel_shape[0]; ++k_col) {
-              auto bit = in_share.Get(in_idx(channel_i, i_row + k_row, i_col + k_col));
+              // auto bit = in_share.Get(in_idx(channel_i, i_row + k_row, i_col + k_col));
               if constexpr (setup) {
-                auto& bv = circuit_wires[mpin_wires_idx(bit_j, k_row, k_col)]->get_secret_share();
-                bv.Set(bit, out_idx(channel_i, o_row, o_col));
+                auto& bv = circuit_wires[mpin_wires_idx(bit_j, k_row, k_col)]->get_common_secret_share();
+                // bv.Set(bit, out_idx(channel_i, o_row, o_col));
+                bv = in_share;
               } else {
+                auto bit = in_share.Get(in_idx(channel_i, i_row + k_row, i_col + k_col));
                 auto& bv = circuit_wires[mpin_wires_idx(bit_j, k_row, k_col)]->get_public_share();
                 bv.Set(bit, out_idx(channel_i, o_row, o_col));
               }
@@ -2298,7 +2452,7 @@ void BooleanBEAVYTensorMaxPool::evaluate_setup() {
 
   input_->wait_setup();
 
-  prepare_wires<true>(bit_size_, maxpool_op_, input_wires_, input_->get_secret_share());
+  prepare_wires<true>(bit_size_, maxpool_op_, input_wires_, input_->get_common_secret_share());
 
   for (auto& gate : gates_) {
     // should work since its a Boolean circuit consisting of AND, XOR, INV gates
@@ -2333,7 +2487,7 @@ void BooleanBEAVYTensorMaxPool::evaluate_setup_with_context(ExecutionContext& ex
 
   input_->wait_setup();
 
-  prepare_wires<true>(bit_size_, maxpool_op_, input_wires_, input_->get_secret_share());
+  prepare_wires<true>(bit_size_, maxpool_op_, input_wires_, input_->get_common_secret_share());
 
   for (auto& gate : gates_) {
     exec_ctx.fpool_->post([&] { gate->evaluate_setup(); });
