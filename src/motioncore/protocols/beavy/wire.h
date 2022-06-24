@@ -36,7 +36,8 @@ class BEAVYProvider;
 
 class BooleanBEAVYWire : public NewWire, public ENCRYPTO::enable_wait_setup {
  public:
-  BooleanBEAVYWire(std::size_t num_simd, std::size_t num_parties = 2) : NewWire(num_simd) {
+  BooleanBEAVYWire(std::size_t num_simd, std::size_t num_parties = 10) : NewWire(num_simd) {
+      // TODO(pranav): fix the number of parties issue.
       // Single public value per data instance.
       public_share_.Resize(num_simd);
       // We do not need different secret shares for different data instances.

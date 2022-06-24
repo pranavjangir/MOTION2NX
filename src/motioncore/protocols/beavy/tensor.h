@@ -74,7 +74,9 @@ class BooleanBEAVYTensor : public tensor::Tensor, public ENCRYPTO::enable_wait_s
           throw std::logic_error("ERROR :num_parties must always be > 2. \n");
         }
         for (std::size_t bit = 0; bit < bit_size; ++bit) {
+          // Non zero intializations.
           common_secret_share_[bit].Resize(1LL << num_parties);
+          public_share_[bit].Resize(dims.get_data_size());
         }
       }
   MPCProtocol get_protocol() const noexcept override { return MPCProtocol::BooleanBEAVY; }
