@@ -82,6 +82,7 @@ BEAVYProvider::BEAVYProvider(Communication::CommunicationLayer& communication_la
   mup_shares_for_p_king_.resize(num_parties_);
   total_shares_ = 0;
   // TODO(pranav): Make this step more optimized, instead of looping over all subsets.
+  // TODO(pranav): Think of something simpler.
   for (std::size_t subset = 1; subset < (1LL << num_parties_); ++subset) {
     if (__builtin_popcount(subset) != t) {
       continue;
