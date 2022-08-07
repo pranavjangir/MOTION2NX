@@ -9,6 +9,7 @@ add_library(motion
         base/gate_register.cpp
         base/party.cpp
         base/register.cpp
+        base/swift_backend.cpp
         base/two_party_backend.cpp
         base/two_party_tensor_backend.cpp
         communication/base_ot_message.cpp
