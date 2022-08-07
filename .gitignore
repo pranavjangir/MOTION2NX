@@ -20,6 +20,7 @@ src/motioncore/utility/config.h
 # build directory
 build*/
 cmake-build*
+dbg/*
 
 # CMake
 CMakeCache.txt
