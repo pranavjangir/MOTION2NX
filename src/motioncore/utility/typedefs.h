@@ -172,6 +172,8 @@ enum class MPCProtocol : unsigned int {
   Yao,
   ArithmeticBEAVY,
   BooleanBEAVY,
+  ArithmeticSWIFT,
+  BooleanSWIFT,
   ArithmeticPlain,
   BooleanPlain,
   Invalid  // for checking whether the value is valid
