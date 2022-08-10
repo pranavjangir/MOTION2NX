@@ -33,9 +33,6 @@
 #include "utility/enable_wait.h"
 #include "utility/type_traits.hpp"
 
-namespace ENCRYPTO::ObliviousTransfer {
-class OTProviderManager;
-}
 
 namespace MOTION {
 
@@ -57,22 +54,13 @@ namespace Crypto {
 class MotionBaseProvider;
 }  // namespace Crypto
 
-namespace proto::gmw {
-class BooleanGMWWire;
-using BooleanGMWWireVector = std::vector<std::shared_ptr<BooleanGMWWire>>;
-template <typename T>
-class ArithmeticGMWWire;
-template <typename T>
-using ArithmeticGMWWireP = std::shared_ptr<ArithmeticGMWWire<T>>;
-}  // namespace proto::gmw
-
 namespace proto::swift {
 
 enum class OutputRecipient : std::uint8_t { garbler, evaluator, both };
 
-class BooleanBEAVYWire;
-using BooleanBEAVYWireP = std::shared_ptr<BooleanBEAVYWire>;
-using BooleanBEAVYWireVector = std::vector<BooleanBEAVYWireP>;
+class BooleanSWIFTWire;
+using BooleanSWIFTWireP = std::shared_ptr<BooleanSWIFTWire>;
+using BooleanSWIFTWireVector = std::vector<BooleanSWIFTWireP>;
 
 class SWIFTProvider : public GateFactory,
                       public ENCRYPTO::enable_wait_setup,
@@ -83,16 +71,14 @@ class SWIFTProvider : public GateFactory,
   struct my_input_t {};
 
   SWIFTProvider(Communication::CommunicationLayer&, GateRegister&, CircuitLoader&,
-                Crypto::MotionBaseProvider&, ENCRYPTO::ObliviousTransfer::OTProviderManager&,
-                ArithmeticProviderManager&, std::shared_ptr<Logger>, bool fake_setup = false);
+                Crypto::MotionBaseProvider&,
+                std::shared_ptr<Logger>, bool fake_setup = false);
   ~SWIFTProvider();
 
   std::string get_provider_name() const noexcept override { return "SWIFTProvider"; }
 
   void setup();
   Crypto::MotionBaseProvider& get_motion_base_provider() noexcept { return motion_base_provider_; }
-  ENCRYPTO::ObliviousTransfer::OTProviderManager& get_ot_manager() noexcept { return ot_manager_; }
-  ArithmeticProviderManager& get_arith_manager() noexcept { return arith_manager_; }
   CircuitLoader& get_circuit_loader() noexcept { return circuit_loader_; }
   std::shared_ptr<Logger> get_logger() const noexcept { return logger_; }
   bool is_my_job(std::size_t gate_id) const noexcept;
@@ -148,7 +134,8 @@ class SWIFTProvider : public GateFactory,
   void make_arithmetic_output_gate_other(std::size_t output_owner, const WireVector&) override;
 
   // function gates
-  WireVector make_unary_gate(ENCRYPTO::PrimitiveOperationType op, const WireVector&) override;
+  // TODO(pranav): Implement this.
+  //   WireVector make_unary_gate(ENCRYPTO::PrimitiveOperationType op, const WireVector&) override;
 
   WireVector make_binary_gate(ENCRYPTO::PrimitiveOperationType op, const WireVector&,
                               const WireVector&) override;
@@ -162,49 +149,49 @@ class SWIFTProvider : public GateFactory,
   // conversions
   WireVector convert(MPCProtocol dst_protocol, const WireVector&) override;
 
-  // implementation of TensorOpFactory
-  std::pair<ENCRYPTO::ReusableFiberPromise<IntegerValues<std::uint32_t>>, tensor::TensorCP>
-  make_arithmetic_32_tensor_input_my(const tensor::TensorDimensions&) override;
-  std::pair<ENCRYPTO::ReusableFiberPromise<IntegerValues<std::uint64_t>>, tensor::TensorCP>
-  make_arithmetic_64_tensor_input_my(const tensor::TensorDimensions&) override;
+//   // implementation of TensorOpFactory
+//   std::pair<ENCRYPTO::ReusableFiberPromise<IntegerValues<std::uint32_t>>, tensor::TensorCP>
+//   make_arithmetic_32_tensor_input_my(const tensor::TensorDimensions&) override;
+//   std::pair<ENCRYPTO::ReusableFiberPromise<IntegerValues<std::uint64_t>>, tensor::TensorCP>
+//   make_arithmetic_64_tensor_input_my(const tensor::TensorDimensions&) override;
 
-  tensor::TensorCP make_arithmetic_32_tensor_input_other(const tensor::TensorDimensions&) override;
-  tensor::TensorCP make_arithmetic_64_tensor_input_other(const tensor::TensorDimensions&) override;
+//   tensor::TensorCP make_arithmetic_32_tensor_input_other(const tensor::TensorDimensions&) override;
+//   tensor::TensorCP make_arithmetic_64_tensor_input_other(const tensor::TensorDimensions&) override;
 
-  // arithmetic outputs
-  ENCRYPTO::ReusableFiberFuture<IntegerValues<std::uint32_t>> make_arithmetic_32_tensor_output_my(
-      const tensor::TensorCP&) override;
-  ENCRYPTO::ReusableFiberFuture<IntegerValues<std::uint64_t>> make_arithmetic_64_tensor_output_my(
-      const tensor::TensorCP&) override;
+//   // arithmetic outputs
+//   ENCRYPTO::ReusableFiberFuture<IntegerValues<std::uint32_t>> make_arithmetic_32_tensor_output_my(
+//       const tensor::TensorCP&) override;
+//   ENCRYPTO::ReusableFiberFuture<IntegerValues<std::uint64_t>> make_arithmetic_64_tensor_output_my(
+//       const tensor::TensorCP&) override;
 
-  // conversions
-  tensor::TensorCP make_tensor_conversion(MPCProtocol, const tensor::TensorCP input) override;
+//   // conversions
+//   tensor::TensorCP make_tensor_conversion(MPCProtocol, const tensor::TensorCP input) override;
 
-  void make_arithmetic_tensor_output_other(const tensor::TensorCP&) override;
+//   void make_arithmetic_tensor_output_other(const tensor::TensorCP&) override;
 
-  tensor::TensorCP make_tensor_flatten_op(const tensor::TensorCP input, std::size_t axis) override;
-  tensor::TensorCP make_tensor_conv2d_op(const tensor::Conv2DOp& conv_op,
-                                         const tensor::TensorCP input,
-                                         const tensor::TensorCP kernel, const tensor::TensorCP bias,
-                                         std::size_t fractional_bits = 0) override;
-  using tensor::TensorOpFactory::make_tensor_conv2d_op;
-  tensor::TensorCP make_tensor_gemm_op(const tensor::GemmOp& conv_op,
-                                       const tensor::TensorCP input_A,
-                                       const tensor::TensorCP input_B,
-                                       std::size_t fractional_bits = 0) override;
-  tensor::TensorCP make_tensor_sqr_op(const tensor::TensorCP input,
-                                      std::size_t fractional_bits = 0) override;
-  tensor::TensorCP make_tensor_relu_op(const tensor::TensorCP) override;
-  template <typename T>
-  tensor::TensorCP basic_make_tensor_relu_op(const tensor::TensorCP, const tensor::TensorCP);
-  tensor::TensorCP make_tensor_relu_op(const tensor::TensorCP, const tensor::TensorCP) override;
-  tensor::TensorCP make_tensor_maxpool_op(const tensor::MaxPoolOp&,
-                                          const tensor::TensorCP) override;
-  tensor::TensorCP make_tensor_avgpool_op(const tensor::AveragePoolOp&, const tensor::TensorCP,
-                                          std::size_t fractional_bits = 0) override;
-  template <typename T>
-  tensor::TensorCP basic_make_convert_boolean_to_arithmetic_beavy_tensor(const tensor::TensorCP);
-  tensor::TensorCP make_convert_boolean_to_arithmetic_beavy_tensor(const tensor::TensorCP);
+//   tensor::TensorCP make_tensor_flatten_op(const tensor::TensorCP input, std::size_t axis) override;
+//   tensor::TensorCP make_tensor_conv2d_op(const tensor::Conv2DOp& conv_op,
+//                                          const tensor::TensorCP input,
+//                                          const tensor::TensorCP kernel, const tensor::TensorCP bias,
+//                                          std::size_t fractional_bits = 0) override;
+//   using tensor::TensorOpFactory::make_tensor_conv2d_op;
+//   tensor::TensorCP make_tensor_gemm_op(const tensor::GemmOp& conv_op,
+//                                        const tensor::TensorCP input_A,
+//                                        const tensor::TensorCP input_B,
+//                                        std::size_t fractional_bits = 0) override;
+//   tensor::TensorCP make_tensor_sqr_op(const tensor::TensorCP input,
+//                                       std::size_t fractional_bits = 0) override;
+//   tensor::TensorCP make_tensor_relu_op(const tensor::TensorCP) override;
+//   template <typename T>
+//   tensor::TensorCP basic_make_tensor_relu_op(const tensor::TensorCP, const tensor::TensorCP);
+//   tensor::TensorCP make_tensor_relu_op(const tensor::TensorCP, const tensor::TensorCP) override;
+//   tensor::TensorCP make_tensor_maxpool_op(const tensor::MaxPoolOp&,
+//                                           const tensor::TensorCP) override;
+//   tensor::TensorCP make_tensor_avgpool_op(const tensor::AveragePoolOp&, const tensor::TensorCP,
+//                                           std::size_t fractional_bits = 0) override;
+//   template <typename T>
+//   tensor::TensorCP basic_make_convert_boolean_to_arithmetic_swift_tensor(const tensor::TensorCP);
+//   tensor::TensorCP make_convert_boolean_to_arithmetic_swift_tensor(const tensor::TensorCP);
 
  private:
   enum class mixed_gate_mode_t { arithmetic, boolean, plain };
@@ -239,51 +226,51 @@ class SWIFTProvider : public GateFactory,
   template <template <typename> class BinaryGate,
             mixed_gate_mode_t mgm = mixed_gate_mode_t::arithmetic>
   WireVector make_arithmetic_binary_gate(const WireVector& in_a, const WireVector& in_b);
-  WireVector make_neg_gate(const WireVector& in_a);
+  // TODO(pranav): Implement this gate.
+  // WireVector make_neg_gate(const WireVector& in_a);
   WireVector make_add_gate(const WireVector& in_a, const WireVector& in_b);
   WireVector make_mul_gate(const WireVector& in_a, const WireVector& in_b);
   WireVector make_sqr_gate(const WireVector& in_a);
   template <typename T>
-  WireVector basic_make_convert_to_arithmetic_beavy_gate(BooleanBEAVYWireVector&& in_a);
-  WireVector make_convert_to_arithmetic_beavy_gate(BooleanBEAVYWireVector&& in_a);
+  WireVector basic_make_convert_to_arithmetic_swift_gate(BooleanSWIFTWireVector&& in_a);
+  WireVector make_convert_to_arithmetic_swift_gate(BooleanSWIFTWireVector&& in_a);
 
  public:
   // TODO: design API for bit x integer operations
   template <typename T>
-  WireVector basic_make_convert_bit_to_arithmetic_beavy_gate(BooleanBEAVYWireP in_a);
+  WireVector basic_make_convert_bit_to_arithmetic_swift_gate(BooleanSWIFTWireP in_a);
 
  private:
-  WireVector make_convert_to_boolean_gmw_gate(BooleanBEAVYWireVector&& in_a);
-  BooleanBEAVYWireVector make_convert_from_boolean_gmw_gate(const WireVector& in);
+  WireVector make_convert_to_boolean_gmw_gate(BooleanSWIFTWireVector&& in_a);
+  BooleanSWIFTWireVector make_convert_from_boolean_gmw_gate(const WireVector& in);
   template <typename T>
   WireVector basic_make_convert_to_arithmetic_gmw_gate(const NewWireP& in_a);
   WireVector make_convert_to_arithmetic_gmw_gate(const WireVector& in_a);
   template <typename T>
   WireVector basic_make_convert_from_arithmetic_gmw_gate(const NewWireP& in_a);
   WireVector make_convert_from_arithmetic_gmw_gate(const WireVector& in_a);
-  WireVector convert_from_arithmetic_beavy(MPCProtocol dst_protocol, const WireVector&);
-  WireVector convert_from_boolean_beavy(MPCProtocol dst_protocol, const WireVector&);
-  WireVector convert_from_other_to_beavy(MPCProtocol dst_protocol, const WireVector&);
-  WireVector convert_from_other_to_arithmetic_beavy(const WireVector&);
-  WireVector convert_from_other_to_boolean_beavy(const WireVector&);
+  WireVector convert_from_arithmetic_swift(MPCProtocol dst_protocol, const WireVector&);
+  WireVector convert_from_boolean_swift(MPCProtocol dst_protocol, const WireVector&);
+  WireVector convert_from_other_to_swift(MPCProtocol dst_protocol, const WireVector&);
+  WireVector convert_from_other_to_arithmetic_swift(const WireVector&);
+  WireVector convert_from_other_to_boolean_swift(const WireVector&);
 
   // tensor stuff
-  template <typename T>
-  std::pair<ENCRYPTO::ReusableFiberPromise<IntegerValues<T>>, tensor::TensorCP>
-  basic_make_arithmetic_tensor_input_my(const tensor::TensorDimensions&);
-  template <typename T>
-  tensor::TensorCP basic_make_arithmetic_tensor_input_other(const tensor::TensorDimensions&);
-  template <typename T>
-  ENCRYPTO::ReusableFiberFuture<IntegerValues<T>> basic_make_arithmetic_tensor_output_my(
-      const tensor::TensorCP&);
+  // TODO(pranav): Implement SWIFT tensor operations.
+//   template <typename T>
+//   std::pair<ENCRYPTO::ReusableFiberPromise<IntegerValues<T>>, tensor::TensorCP>
+//   basic_make_arithmetic_tensor_input_my(const tensor::TensorDimensions&);
+//   template <typename T>
+//   tensor::TensorCP basic_make_arithmetic_tensor_input_other(const tensor::TensorDimensions&);
+//   template <typename T>
+//   ENCRYPTO::ReusableFiberFuture<IntegerValues<T>> basic_make_arithmetic_tensor_output_my(
+//       const tensor::TensorCP&);
 
  private:
   Communication::CommunicationLayer& communication_layer_;
   GateRegister& gate_register_;
   CircuitLoader& circuit_loader_;
   Crypto::MotionBaseProvider& motion_base_provider_;
-  ENCRYPTO::ObliviousTransfer::OTProviderManager& ot_manager_;
-  ArithmeticProviderManager& arith_manager_;
   std::size_t my_id_;
   std::size_t num_parties_;
   std::size_t next_input_id_;
@@ -291,5 +278,5 @@ class SWIFTProvider : public GateFactory,
   bool fake_setup_;
 };
 
-}  // namespace proto::beavy
+}  // namespace proto::swift
 }  // namespace MOTION
