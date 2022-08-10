@@ -537,7 +537,6 @@ void BooleanSWIFTANDGate::evaluate_online() {
     auto& b_pub_share = wire_b->get_public_share();
     const auto& op_sec_share = this->outputs_[wire_i]->get_secret_share();
 
-    auto& opshare = this->outputs_[wire_i]->get_public_share();
     ENCRYPTO::BitVector<> wire_data(num_simd, 0);
     // TODO(pranav): Check the correctness of this complication again.
     auto y1 = (a_sec_share[0]&b_pub_share) ^ (a_pub_share&b_sec_share[0]) ^ (op_sec_share[0]);
@@ -976,8 +975,10 @@ ArithmeticSWIFTADDGate<T>::ArithmeticSWIFTADDGate(std::size_t gate_id,
                                                   ArithmeticSWIFTWireP<T>&& in_b)
     : detail::BasicArithmeticSWIFTBinaryGate<T>(gate_id, swift_provider, std::move(in_a),
                                                 std::move(in_b)) {
-  this->output_->get_public_share().resize(this->input_a_->get_num_simd());
-  this->output_->get_secret_share().resize(this->input_a_->get_num_simd());
+  this->output_->get_public_share().resize(this->input_a_->get_num_simd(), 0);
+  for (std::size_t share_id = 0; share_id < 3; ++share_id) {
+    this->output_->get_secret_share()[share_id].resize(this->input_a_->get_num_simd(), 0);
+  }
 }
 
 template <typename T>
@@ -1069,8 +1070,8 @@ void ArithmeticSWIFTMULGate<T>::evaluate_setup() {
         }
       }
     }
-    swift_provider_.send_ints_message(0, gate_id_, delta_ab_);
-    swift_provider_.send_ints_message(1, gate_id_, delta_ab_);
+    swift_provider_.send_ints_message(0, this->gate_id_, delta_ab_);
+    swift_provider_.send_ints_message(1, this->gate_id_, delta_ab_);
   }
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
@@ -1098,7 +1099,6 @@ void ArithmeticSWIFTMULGate<T>::evaluate_online() {
     return;
   }
 
-  auto num_simd = this->input_a_->get_num_simd();
   this->input_a_->wait_online();
   this->input_b_->wait_online();
   auto& a_sec_share = this->input_a_->get_secret_share();

@@ -339,7 +339,7 @@ class ArithmeticSWIFTMULGate : public detail::BasicArithmeticSWIFTBinaryGate<T> 
   SWIFTProvider& swift_provider_;
   ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_;
   ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_offline_;
-  std::vector<T> delta_ab_ = 0;
+  std::vector<T> delta_ab_;
 };
 
 // template <typename T>
