@@ -61,6 +61,10 @@ add_library(motion
         protocols/beavy/gate.cpp
         protocols/beavy/plain.cpp
         protocols/beavy/tensor_op.cpp
+        protocols/swift/swift_provider.cpp
+        protocols/swift/conversion.cpp
+        protocols/swift/gate.cpp
+        protocols/swift/plain.cpp
         protocols/gmw/conversion.cpp
         protocols/gmw/gate.cpp
         protocols/gmw/gmw_provider.cpp
