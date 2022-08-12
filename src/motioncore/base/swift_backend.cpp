@@ -99,6 +99,9 @@ std::optional<MPCProtocol> SwiftBackend::convert_via(MPCProtocol src_proto,
     return MPCProtocol::Yao;
   } else if (src_proto == MPCProtocol::BooleanBEAVY && dst_proto == MPCProtocol::ArithmeticGMW) {
     return MPCProtocol::BooleanGMW;
+  } else if (src_proto == MPCProtocol::ArithmeticSWIFT && dst_proto == MPCProtocol::BooleanSWIFT) {
+    // Explicitly mentioning that in SWIFT, A2B is done directly.
+    return std::nullopt;
   }
   return std::nullopt;
 }

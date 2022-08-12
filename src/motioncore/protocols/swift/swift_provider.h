@@ -32,6 +32,7 @@
 #include "utility/bit_vector.h"
 #include "utility/enable_wait.h"
 #include "utility/type_traits.hpp"
+#include "wire.h"
 
 
 namespace MOTION {
@@ -234,6 +235,9 @@ class SWIFTProvider : public GateFactory,
   template <typename T>
   WireVector basic_make_convert_to_arithmetic_swift_gate(BooleanSWIFTWireVector&& in_a);
   WireVector make_convert_to_arithmetic_swift_gate(BooleanSWIFTWireVector&& in_a);
+  template <typename T>
+  WireVector basic_make_convert_to_boolean_swift_gate(const ArithmeticSWIFTWireVector<T>&& in_a);
+  WireVector make_convert_to_boolean_swift_gate(const WireVector& in_a);
 
  public:
   // TODO: design API for bit x integer operations

@@ -87,6 +87,14 @@ static BooleanSWIFTWireVector cast_wires(std::vector<std::shared_ptr<NewWire>> w
   return result;
 }
 
+template <typename T>
+static ArithmeticSWIFTWireVector<T> cast_wires(std::vector<std::shared_ptr<NewWire>> wires) {
+  ArithmeticSWIFTWireVector<T> result(wires.size());
+  std::transform(std::begin(wires), std::end(wires), std::begin(result),
+                 [](auto& w) { return std::dynamic_pointer_cast<ArithmeticSWIFTWire<T>>(w); });
+  return result;
+}
+
 static plain::BooleanPlainWireVector cast_to_plain_wires(
     std::vector<std::shared_ptr<NewWire>> wires) {
   plain::BooleanPlainWireVector result(wires.size());
@@ -633,6 +641,25 @@ WireVector SWIFTProvider::make_convert_to_arithmetic_swift_gate(BooleanSWIFTWire
 }
 
 template <typename T>
+WireVector SWIFTProvider::basic_make_convert_to_boolean_swift_gate(
+    const ArithmeticSWIFTWireVector<T>&& in_a) {
+  [[maybe_unused]] auto num_wires = in_a.size();
+  assert(num_wires == ENCRYPTO::bit_size_v<T>);
+  auto gate_id = gate_register_.get_next_gate_id();
+  // TODO(pranav): Change this gate. Add the A2B gate!.
+  auto gate = std::make_unique<BooleanToArithmeticSWIFTGate<T>>(gate_id, *this, std::move(in_a));
+  auto output = gate->get_output_wire();
+  gate_register_.register_gate(std::move(gate));
+  return {std::dynamic_pointer_cast<NewWire>(output)};
+}
+
+WireVector SWIFTProvider::make_convert_to_boolean_swift_gate(const WireVector& in_a) {
+  // TODO(pranav): Add cases for the ring size.
+  const auto arith_wires = cast_wires<std::uint64_t>(in_a);
+  return basic_make_convert_to_boolean_swift_gate<std::uint64_t>(std::move(arith_wires));
+}
+
+template <typename T>
 WireVector SWIFTProvider::basic_make_convert_bit_to_arithmetic_swift_gate(BooleanSWIFTWireP in_a) {
   auto gate_id = gate_register_.get_next_gate_id();
   auto gate = std::make_unique<BooleanBitToArithmeticSWIFTGate<T>>(gate_id, *this, std::move(in_a));
@@ -705,6 +732,8 @@ WireVector SWIFTProvider::convert_from_arithmetic_swift(MPCProtocol proto, const
   switch (proto) {
     case MPCProtocol::ArithmeticGMW:
       return make_convert_to_arithmetic_gmw_gate(in);
+    case MPCProtocol::BooleanSWIFT:
+      return make_convert_to_boolean_swift_gate(in);
     default:
       throw std::logic_error(
           fmt::format("ArithmeticSWIFT does not support conversion to {}", ToString(proto)));
@@ -730,6 +759,8 @@ WireVector SWIFTProvider::convert_from_other_to_boolean_swift(const WireVector& 
   switch (src_proto) {
     case MPCProtocol::BooleanGMW:
       return cast_wires(make_convert_from_boolean_gmw_gate(in));
+    case MPCProtocol::ArithmeticSWIFT:
+      return make_convert_to_boolean_swift_gate(in);
     default:
       throw std::logic_error(
           fmt::format("BooleanSWIFT does not support conversion from {}", ToString(src_proto)));
