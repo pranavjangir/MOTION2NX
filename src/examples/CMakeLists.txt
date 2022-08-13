@@ -10,6 +10,7 @@ add_subdirectory(example_template)
 add_subdirectory(millionaires_problem)
 add_subdirectory(sha256)
 add_subdirectory(triple_generator)
+add_subdirectory(private_heavy_hitters)
 
 if (MOTION_BUILD_ONNX_ADAPTER)
   add_subdirectory(onnx2motion)
