@@ -1146,6 +1146,103 @@ template class ArithmeticSWIFTMULGate<std::uint16_t>;
 template class ArithmeticSWIFTMULGate<std::uint32_t>;
 template class ArithmeticSWIFTMULGate<std::uint64_t>;
 
+template <typename T>
+ArithmeticSWIFTDummyGate<T>::ArithmeticSWIFTDummyGate(std::size_t gate_id,
+                                                  SWIFTProvider& swift_provider,
+                                                  ArithmeticSWIFTWireP<T>&& in)
+    : detail::BasicArithmeticSWIFTUnaryGate<T>(gate_id, swift_provider, std::move(in)),
+      swift_provider_(swift_provider) {
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = this->input_->get_num_simd();
+  if (my_id != 2) {
+    share_future_offline_ = swift_provider_.register_for_ints_message<T>(2, this->gate_id_, msg_snd_);
+    share_future_ = swift_provider_.register_for_ints_message<T>(1 - my_id, this->gate_id_, msg_snd_);
+  }
+}
+
+template <typename T>
+ArithmeticSWIFTDummyGate<T>::~ArithmeticSWIFTDummyGate() = default;
+
+template <typename T>
+void ArithmeticSWIFTDummyGate<T>::evaluate_setup() {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: ArithmeticSWIFTDummyGate<T>::evaluate_setup start", this->gate_id_));
+    }
+  }
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = this->input_->get_num_simd();
+
+  this->output_->get_secret_share() = {Helpers::RandomVector<T>(num_simd),
+  Helpers::RandomVector<T>(num_simd),
+  Helpers::RandomVector<T>(num_simd)};
+  this->output_->set_setup_ready();
+
+  if (my_id == 2) {
+    auto rand_vector = Helpers::RandomVector<T>(msg_snd_);
+    swift_provider_.send_ints_message(0, this->gate_id_, rand_vector);
+    swift_provider_.send_ints_message(1, this->gate_id_, rand_vector);
+  } else {
+    auto vec = share_future_offline_.get();
+    for (std::size_t i = 0; i < vec.size(); ++i) {
+      vec[i] = vec[i]*vec[i];
+    }
+  }
+
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: ArithmeticSWIFTDummyGate::evaluate_setup end", this->gate_id_));
+    }
+  }
+}
+
+template <typename T>
+void ArithmeticSWIFTDummyGate<T>::evaluate_online() {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: ArithmeticSWIFTDummyGate<T>::evaluate_online start", this->gate_id_));
+    }
+  }
+
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = this->input_->get_num_simd();
+  this->input_->wait_online();
+  if (my_id == 2) {
+    this->output_->set_online_ready();
+    return;
+  }
+  auto rand_vector = Helpers::RandomVector<T>(msg_snd_);
+  swift_provider_.send_ints_message(1 - my_id, this->gate_id_, rand_vector);
+
+  auto vec = share_future_.get();
+  for (std::size_t i = 0; i < vec.size(); ++i) {
+      vec[i] = vec[i]*vec[i];
+      if (i < num_simd) {
+        this->output_->get_public_share()[i] = vec[i];
+      }
+  }
+
+  this->output_->set_online_ready();
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: ArithmeticSWIFTDummyGate<T>::evaluate_online end", this->gate_id_));
+    }
+  }
+}
+
+template class ArithmeticSWIFTDummyGate<std::uint8_t>;
+template class ArithmeticSWIFTDummyGate<std::uint16_t>;
+template class ArithmeticSWIFTDummyGate<std::uint32_t>;
+template class ArithmeticSWIFTDummyGate<std::uint64_t>;
+
 // template <typename T>
 // ArithmeticSWIFTSQRGate<T>::ArithmeticSWIFTSQRGate(std::size_t gate_id,
 //                                                   SWIFTProvider& swift_provider,

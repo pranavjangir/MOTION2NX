@@ -273,17 +273,17 @@ class BasicArithmeticSWIFTBinaryGate : public NewGate {
   ArithmeticSWIFTWireP<T> output_;
 };
 
-// template <typename T>
-// class BasicArithmeticSWIFTUnaryGate : public NewGate {
-//  public:
-//   BasicArithmeticSWIFTUnaryGate(std::size_t gate_id, SWIFTProvider&, ArithmeticSWIFTWireP<T>&&);
-//   ArithmeticSWIFTWireP<T>& get_output_wire() noexcept { return output_; }
+template <typename T>
+class BasicArithmeticSWIFTUnaryGate : public NewGate {
+ public:
+  BasicArithmeticSWIFTUnaryGate(std::size_t gate_id, SWIFTProvider&, ArithmeticSWIFTWireP<T>&&);
+  ArithmeticSWIFTWireP<T>& get_output_wire() noexcept { return output_; }
 
-//  protected:
-//   std::size_t num_wires_;
-//   const ArithmeticSWIFTWireP<T> input_;
-//   ArithmeticSWIFTWireP<T> output_;
-// };
+ protected:
+  std::size_t num_wires_;
+  const ArithmeticSWIFTWireP<T> input_;
+  ArithmeticSWIFTWireP<T> output_;
+};
 
 // template <typename T>
 // class BasicBooleanXArithmeticSWIFTBinaryGate : public NewGate {
@@ -340,6 +340,23 @@ class ArithmeticSWIFTMULGate : public detail::BasicArithmeticSWIFTBinaryGate<T> 
   ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_;
   ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_offline_;
   std::vector<T> delta_ab_;
+};
+
+template <typename T>
+class ArithmeticSWIFTDummyGate : public detail::BasicArithmeticSWIFTUnaryGate<T> {
+ public:
+  ArithmeticSWIFTDummyGate(std::size_t gate_id, SWIFTProvider&, ArithmeticSWIFTWireP<T>&&);
+  ~ArithmeticSWIFTDummyGate();
+  bool need_setup() const noexcept override { return true; }
+  bool need_online() const noexcept override { return true; }
+  void evaluate_setup() override;
+  void evaluate_online() override;
+
+ private:
+  SWIFTProvider& swift_provider_;
+  ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_;
+  ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_offline_;
+  const int msg_snd_ = 500000;
 };
 
 // template <typename T>
