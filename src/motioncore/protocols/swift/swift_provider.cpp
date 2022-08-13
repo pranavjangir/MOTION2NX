@@ -495,6 +495,23 @@ WireVector SWIFTProvider::make_arithmetic_unary_gate(const NewWireP& in_a) {
   return output;
 }
 
+template <template <typename> class UnaryGate, typename T>
+WireVector SWIFTProvider::make_dummy_gate(const WireVector& in_a) {
+  auto bit_size = check_arithmetic_wire(in_a);
+  switch (bit_size) {
+    case 8:
+      return make_arithmetic_unary_gate<UnaryGate, std::uint8_t>(in_a[0]);
+    case 16:
+      return make_arithmetic_unary_gate<UnaryGate, std::uint16_t>(in_a[0]);
+    case 32:
+      return make_arithmetic_unary_gate<UnaryGate, std::uint32_t>(in_a[0]);
+    case 64:
+      return make_arithmetic_unary_gate<UnaryGate, std::uint64_t>(in_a[0]);
+    default:
+      throw std::logic_error(fmt::format("unexpected bit size {}", bit_size));
+  }
+}
+
 template <template <typename> class UnaryGate>
 WireVector SWIFTProvider::make_arithmetic_unary_gate(const WireVector& in_a) {
   auto bit_size = check_arithmetic_wire(in_a);

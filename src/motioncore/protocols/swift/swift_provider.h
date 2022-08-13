@@ -141,6 +141,9 @@ class SWIFTProvider : public GateFactory,
   WireVector make_binary_gate(ENCRYPTO::PrimitiveOperationType op, const WireVector&,
                               const WireVector&) override;
 
+  template <template <typename> class UnaryGate, typename T>
+  WireVector make_dummy_gate(const WireVector& in_a);
+
   std::pair<NewGateP, WireVector> construct_unary_gate(ENCRYPTO::PrimitiveOperationType op,
                                                        const WireVector&);
 
