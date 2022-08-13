@@ -23,6 +23,7 @@
 #include "conversion.h"
 
 #include <cstdint>
+#include <bitset>
 
 #include <fmt/format.h>
 
@@ -30,10 +31,23 @@
 #include "crypto/oblivious_transfer/ot_flavors.h"
 #include "crypto/oblivious_transfer/ot_provider.h"
 #include "protocols/gmw/wire.h"
+#include "algorithm/circuit_loader.h"
+#include "algorithm/make_circuit.h"
 #include "utility/constants.h"
 #include "utility/logger.h"
 
 namespace MOTION::proto::swift {
+
+static std::shared_ptr<NewWire> cast_boolean_wire(BooleanSWIFTWireP wire) {
+  return std::shared_ptr<NewWire>(wire);
+}
+
+static BooleanSWIFTWireVector cast_wires(std::vector<std::shared_ptr<NewWire>> wires) {
+  BooleanSWIFTWireVector result(wires.size());
+  std::transform(std::begin(wires), std::end(wires), std::begin(result),
+                 [](auto& w) { return std::dynamic_pointer_cast<BooleanSWIFTWire>(w); });
+  return result;
+}
 
 template <typename T>
 BooleanBitToArithmeticSWIFTGate<T>::BooleanBitToArithmeticSWIFTGate(std::size_t gate_id,
@@ -337,6 +351,177 @@ template class BooleanToArithmeticSWIFTGate<std::uint8_t>;
 template class BooleanToArithmeticSWIFTGate<std::uint16_t>;
 template class BooleanToArithmeticSWIFTGate<std::uint32_t>;
 template class BooleanToArithmeticSWIFTGate<std::uint64_t>;
+
+template <typename T>
+ArithmeticToBooleanSWIFTGate<T>::ArithmeticToBooleanSWIFTGate(std::size_t gate_id,
+                                                              SWIFTProvider& swift_provider,
+                                                              const ArithmeticSWIFTWireP<T> in)
+    : NewGate(gate_id), input_(std::move(in)), swift_provider_(swift_provider) {
+  const auto num_wires = ENCRYPTO::bit_size_v<T>;
+  const auto num_simd = input_->get_num_simd();
+  // create num_wires amount of output wires output wires!
+  output_.reserve(num_wires);
+  std::generate_n(std::back_inserter(output_), num_wires,
+                  [num_simd] { return std::make_shared<BooleanSWIFTWire>(num_simd); });
+  const auto my_id = swift_provider_.get_my_id();
+  share_future_ = swift_provider_.register_for_ints_message<T>(1 - my_id, gate_id_, num_simd);
+
+  // Addition gate stuff.
+  // The addition gate will be inside this gate, and will be run in the ONLINE phase of this gate.
+  auto& addition_circuit =
+      swift_provider_.get_circuit_loader().load_circuit(fmt::format("int_add{}_depth.bristol", num_wires),
+          CircuitFormat::Bristol);
+  
+  // apply the circuit to the Boolean shares.
+  WireVector A(ENCRYPTO::bit_size_v<T>);
+  WireVector B(ENCRYPTO::bit_size_v<T>);
+  output_public_.resize(num_wires);
+  output_random_.resize(num_wires);
+  for (std::size_t bit_pos = 0; bit_pos < num_wires; ++bit_pos) {
+    output_public_[bit_pos] = std::make_shared<BooleanSWIFTWire>(num_simd);
+    output_random_[bit_pos] = std::make_shared<BooleanSWIFTWire>(num_simd);
+    A[bit_pos] = cast_boolean_wire(output_public_[bit_pos]);
+    B[bit_pos] = cast_boolean_wire(output_random_[bit_pos]);
+  }
+  A.insert(
+      A.end(),
+      std::make_move_iterator(B.begin()),
+      std::make_move_iterator(B.end())
+    );
+  auto [gates, output_wires] = construct_two_input_circuit(swift_provider_, addition_circuit, A);
+  // TODO(pranav): Check this step's correctness.
+  gates_ = std::move(gates);
+  addition_result_ = cast_wires(output_wires);
+}
+
+template <typename T>
+ArithmeticToBooleanSWIFTGate<T>::~ArithmeticToBooleanSWIFTGate() = default;
+
+template <typename T>
+void ArithmeticToBooleanSWIFTGate<T>::evaluate_setup() {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: ArithmeticToBooleanSWIFTGate<T>::evaluate_setup start", gate_id_));
+    }
+  }
+  // TODO(pranav): Make this really random.
+  std::size_t cleartext_r = 3;
+  constexpr std::size_t bit_size = 8 * sizeof(T);
+  const auto bit_converted = std::bitset<bit_size>(cleartext_r);
+  assert(bit_converted.size() == bit_size);
+
+  auto num_simd = input_->get_num_simd();
+
+  for (int bit_pos = 0; bit_pos < bit_size; ++bit_pos) {
+    auto& pub_share = output_random_[bit_pos]->get_public_share();
+    pub_share = ENCRYPTO::BitVector<>(num_simd, bit_converted[bit_pos]);
+    output_random_[bit_pos]->set_setup_ready();
+    // This wire will contain the public value of Z-r, all publicly known.
+    // Therefore, this wire's setup is by default always ready.
+    output_public_[bit_pos]->set_setup_ready();
+  }
+
+  for (auto& gate : gates_) {
+    gate->evaluate_setup();
+  }
+
+  for (std::size_t bit_pos = 0; bit_pos < bit_size; ++bit_pos) {
+      addition_result_[bit_pos]->wait_setup();
+      // Copy the wire vector values to the output.
+      output_[bit_pos]->get_secret_share() = addition_result_[bit_pos]->get_secret_share();
+      output_[bit_pos]->set_setup_ready();
+    }
+
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: ArithmeticToBooleanSWIFTGate<T>::evaluate_setup end", gate_id_));
+    }
+  }
+}
+
+template <typename T>
+void ArithmeticToBooleanSWIFTGate<T>::evaluate_online() {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: ArithmeticToBooleanSWIFTGate<T>::evaluate_online start", gate_id_));
+    }
+  }
+
+  input_->wait_setup();
+  input_->wait_online();
+  const auto my_id = swift_provider_.get_my_id();
+  const auto num_wires = ENCRYPTO::bit_size_v<T>;
+  const auto num_simd = input_->get_num_simd();
+  if (my_id == 2) {
+    for (std::size_t wire_i = 0; wire_i < num_wires; ++wire_i) {
+      output_[wire_i]->set_online_ready();
+    }
+    return;
+  }
+
+  auto ZminusR = input_->get_public_share();
+  std::vector<T> for_other_party(num_simd);
+  if (my_id == 0) {
+    for (std::size_t i = 0; i < num_simd; ++i) {
+      ZminusR[i] -= (input_->get_secret_share()[0][i] + input_->get_secret_share()[2][i] + 2);
+      for_other_party[i] = input_->get_secret_share()[0][i];
+    }
+  } else {
+    for (std::size_t i = 0; i < num_simd; ++i) {
+      ZminusR[i] -= (input_->get_secret_share()[1][i] + input_->get_secret_share()[2][i] + 3);
+      for_other_party[i] = input_->get_secret_share()[1][i] + 1;
+    }
+  }
+
+  swift_provider_.send_ints_message<T>(1 - my_id, this->gate_id_, for_other_party);
+  auto from_other_party = share_future_.get();
+  std::transform(std::begin(ZminusR), std::end(ZminusR),
+   std::begin(from_other_party), std::begin(ZminusR), std::minus{});
+
+  for (std::size_t wire_i = 0; wire_i < num_wires; ++wire_i) {
+    for (std::size_t ele = 0; ele < num_simd; ++ele) {
+      const auto E = ZminusR[ele];
+      auto& pub_share = output_public_[wire_i]->get_public_share();
+      // output_public_[wire_i]->get_public_share()[ele] = ((E&(1LL << wire_i)) ? 1 : 0);
+      pub_share.Set(((E&(1LL << wire_i)) ? 1 : 0), ele);
+    }
+    output_public_[wire_i]->set_online_ready();
+    output_random_[wire_i]->set_online_ready();
+  }
+
+  for (auto& gate : gates_) {
+    gate->evaluate_online();
+  }
+
+  for (std::size_t bit_pos = 0; bit_pos < num_wires; ++bit_pos) {
+    addition_result_[bit_pos]->wait_online();
+    // Copy the wire vector values to the output.
+    output_[bit_pos]->get_public_share() = addition_result_[bit_pos]->get_public_share();
+    output_[bit_pos]->set_online_ready();
+  }
+
+
+
+
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: ArithmeticToBooleanSWIFTGate<T>::evaluate_online end", gate_id_));
+    }
+  }
+}
+
+template class ArithmeticToBooleanSWIFTGate<std::uint8_t>;
+template class ArithmeticToBooleanSWIFTGate<std::uint16_t>;
+template class ArithmeticToBooleanSWIFTGate<std::uint32_t>;
+template class ArithmeticToBooleanSWIFTGate<std::uint64_t>;
 
 BooleanSWIFTToGMWGate::BooleanSWIFTToGMWGate(std::size_t gate_id, SWIFTProvider& swift_provider,
                                              BooleanSWIFTWireVector&& in)

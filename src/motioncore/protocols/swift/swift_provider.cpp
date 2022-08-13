@@ -108,6 +108,10 @@ static std::vector<std::shared_ptr<NewWire>> cast_wires(BooleanSWIFTWireVector&&
   return std::vector<std::shared_ptr<NewWire>>(std::begin(wires), std::end(wires));
 }
 
+static std::vector<std::shared_ptr<NewWire>> cast_wires(BooleanSWIFTWireVector& wires) {
+  return std::vector<std::shared_ptr<NewWire>>(std::begin(wires), std::end(wires));
+}
+
 template <typename T>
 static ArithmeticSWIFTWireP<T> cast_arith_wire(std::shared_ptr<NewWire> wire) {
   auto ptr = std::dynamic_pointer_cast<ArithmeticSWIFTWire<T>>(wire);
@@ -646,11 +650,12 @@ WireVector SWIFTProvider::basic_make_convert_to_boolean_swift_gate(
   [[maybe_unused]] auto num_wires = in_a.size();
   assert(num_wires == ENCRYPTO::bit_size_v<T>);
   auto gate_id = gate_register_.get_next_gate_id();
-  // TODO(pranav): Change this gate. Add the A2B gate!.
-  auto gate = std::make_unique<BooleanToArithmeticSWIFTGate<T>>(gate_id, *this, std::move(in_a));
+  assert(in_a.size() == 1);
+  auto gate = std::make_unique<ArithmeticToBooleanSWIFTGate<T>>(gate_id, *this, std::move(in_a[0]));
   auto output = gate->get_output_wire();
   gate_register_.register_gate(std::move(gate));
-  return {std::dynamic_pointer_cast<NewWire>(output)};
+  // return {std::dynamic_pointer_cast<NewWire>(output)};
+  return cast_wires(output);
 }
 
 WireVector SWIFTProvider::make_convert_to_boolean_swift_gate(const WireVector& in_a) {

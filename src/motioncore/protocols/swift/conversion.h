@@ -103,6 +103,30 @@ class BooleanToArithmeticSWIFTGate : public NewGate {
   ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_;
 };
 
+template <typename T>
+class ArithmeticToBooleanSWIFTGate : public NewGate {
+ public:
+  ArithmeticToBooleanSWIFTGate(std::size_t gate_id, SWIFTProvider&, const ArithmeticSWIFTWireP<T>);
+  ~ArithmeticToBooleanSWIFTGate();
+  bool need_setup() const noexcept override { return true; }
+  bool need_online() const noexcept override { return true; }
+  void evaluate_setup() override;
+  void evaluate_online() override;
+  swift::BooleanSWIFTWireVector& get_output_wire() noexcept { return output_; };
+
+ private:
+  using is_enabled_ = ENCRYPTO::is_unsigned_int_t<T>;
+  const swift::ArithmeticSWIFTWireP<T> input_;
+  swift::BooleanSWIFTWireVector output_;
+  SWIFTProvider& swift_provider_;
+  std::vector<T> arithmetized_secret_share_;
+  swift::BooleanSWIFTWireVector addition_result_;
+  swift::BooleanSWIFTWireVector output_public_;
+  swift::BooleanSWIFTWireVector output_random_;
+  ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_;
+  std::vector<std::unique_ptr<NewGate>> gates_;
+};
+
 class BooleanSWIFTToGMWGate : public NewGate {
  public:
   BooleanSWIFTToGMWGate(std::size_t gate_id, SWIFTProvider&, BooleanSWIFTWireVector&&);
