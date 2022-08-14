@@ -156,46 +156,6 @@ std::unique_ptr<MOTION::Communication::CommunicationLayer> setup_communication(
                                                                      helper.setup_connections());
 }
 
-// auto create_circuit(const Options& options, MOTION::TwoPartyBackend& backend) {
-//   // retrieve the gate factories for the chosen protocols
-//   auto& gate_factory_arith = backend.get_gate_factory(options.arithmetic_protocol);
-//   auto& gate_factory_bool = backend.get_gate_factory(options.boolean_protocol);
-
-//   // share the inputs using the arithmetic protocol
-//   // NB: the inputs need to always be specified in the same order:
-//   // here we first specify the input of party 0, then that of party 1
-//   ENCRYPTO::ReusableFiberPromise<MOTION::IntegerValues<uint64_t>> input_promise;
-//   MOTION::WireVector input_0_arith, input_1_arith;
-//   if (options.my_id == 0) {
-//     auto pair = gate_factory_arith.make_arithmetic_64_input_gate_my(options.my_id, 1);
-//     input_promise = std::move(pair.first);
-//     input_0_arith = std::move(pair.second);
-//     input_1_arith = gate_factory_arith.make_arithmetic_64_input_gate_other(1 - options.my_id, 1);
-//   } else {
-//     input_0_arith = gate_factory_arith.make_arithmetic_64_input_gate_other(1 - options.my_id, 1);
-//     auto pair = gate_factory_arith.make_arithmetic_64_input_gate_my(options.my_id, 1);
-//     input_promise = std::move(pair.first);
-//     input_1_arith = std::move(pair.second);
-//   }
-
-//   // convert the arithmetic shares into Boolean shares
-//   auto input_0_bool = backend.convert(options.boolean_protocol, input_0_arith);
-//   auto input_1_bool = backend.convert(options.boolean_protocol, input_1_arith);
-
-//   // load a boolean circuit for to compute 'greater-than'
-//   MOTION::CircuitLoader circuit_loader;
-//   auto& gt_circuit =
-//       circuit_loader.load_gt_circuit(64, options.boolean_protocol != MOTION::MPCProtocol::Yao);
-//   // apply the circuit to the Boolean sahres
-//   auto output = backend.make_circuit(gt_circuit, input_0_bool, input_1_bool);
-
-//   // create an output gates of the result
-//   auto output_future = gate_factory_bool.make_boolean_output_gate_my(MOTION::ALL_PARTIES, output);
-
-//   // return promise and future to allow setting inputs and retrieving outputs
-//   return std::make_pair(std::move(input_promise), std::move(output_future));
-// }
-
 auto make_input_share(const std::size_t num_clients) {
     ArithmeticSWIFTWireVector<std::uint64_t> wires;
     for (std::size_t i = 0; i < num_clients; ++i) {
