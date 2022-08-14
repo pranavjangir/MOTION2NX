@@ -341,20 +341,20 @@ std::pair<NewGateP, WireVector> SWIFTProvider::construct_unary_gate(
   }
 }
 
-// std::vector<std::shared_ptr<NewWire>> SWIFTProvider::make_unary_gate(
-//     ENCRYPTO::PrimitiveOperationType op, const std::vector<std::shared_ptr<NewWire>>& in_a) {
-//   switch (op) {
-//     case ENCRYPTO::PrimitiveOperationType::INV:
-//       return make_inv_gate(in_a);
-//     case ENCRYPTO::PrimitiveOperationType::NEG:
-//       return make_neg_gate(in_a);
-//     case ENCRYPTO::PrimitiveOperationType::SQR:
-//       return make_sqr_gate(in_a);
-//     default:
-//       throw std::logic_error(
-//           fmt::format("SWIFT does not support the unary operation {}", ToString(op)));
-//   }
-// }
+std::vector<std::shared_ptr<NewWire>> SWIFTProvider::make_unary_gate(
+    ENCRYPTO::PrimitiveOperationType op, const std::vector<std::shared_ptr<NewWire>>& in_a) {
+  switch (op) {
+    // case ENCRYPTO::PrimitiveOperationType::INV:
+    //   return make_inv_gate(in_a);
+    // case ENCRYPTO::PrimitiveOperationType::NEG:
+    //   return make_neg_gate(in_a);
+    case ENCRYPTO::PrimitiveOperationType::SQR:
+      return make_sqr_gate(in_a);
+    default:
+      throw std::logic_error(
+          fmt::format("SWIFT does not support the unary operation {}", ToString(op)));
+  }
+}
 
 std::pair<NewGateP, WireVector> SWIFTProvider::construct_binary_gate(
     ENCRYPTO::PrimitiveOperationType op, const WireVector& in_a, const WireVector& in_b) {

@@ -135,8 +135,7 @@ class SWIFTProvider : public GateFactory,
   void make_arithmetic_output_gate_other(std::size_t output_owner, const WireVector&) override;
 
   // function gates
-  // TODO(pranav): Implement this.
-  //   WireVector make_unary_gate(ENCRYPTO::PrimitiveOperationType op, const WireVector&) override;
+  WireVector make_unary_gate(ENCRYPTO::PrimitiveOperationType op, const WireVector&) override;
 
   WireVector make_binary_gate(ENCRYPTO::PrimitiveOperationType op, const WireVector&,
                               const WireVector&) override;

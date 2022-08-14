@@ -903,17 +903,17 @@ template class BasicArithmeticSWIFTBinaryGate<std::uint16_t>;
 template class BasicArithmeticSWIFTBinaryGate<std::uint32_t>;
 template class BasicArithmeticSWIFTBinaryGate<std::uint64_t>;
 
-// template <typename T>
-// BasicArithmeticSWIFTUnaryGate<T>::BasicArithmeticSWIFTUnaryGate(std::size_t gate_id, SWIFTProvider&,
-//                                                                 ArithmeticSWIFTWireP<T>&& in)
-//     : NewGate(gate_id),
-//       input_(std::move(in)),
-//       output_(std::make_shared<ArithmeticSWIFTWire<T>>(input_->get_num_simd())) {}
+template <typename T>
+BasicArithmeticSWIFTUnaryGate<T>::BasicArithmeticSWIFTUnaryGate(std::size_t gate_id, SWIFTProvider&,
+                                                                ArithmeticSWIFTWireP<T>&& in)
+    : NewGate(gate_id),
+      input_(std::move(in)),
+      output_(std::make_shared<ArithmeticSWIFTWire<T>>(input_->get_num_simd())) {}
 
-// template class BasicArithmeticSWIFTUnaryGate<std::uint8_t>;
-// template class BasicArithmeticSWIFTUnaryGate<std::uint16_t>;
-// template class BasicArithmeticSWIFTUnaryGate<std::uint32_t>;
-// template class BasicArithmeticSWIFTUnaryGate<std::uint64_t>;
+template class BasicArithmeticSWIFTUnaryGate<std::uint8_t>;
+template class BasicArithmeticSWIFTUnaryGate<std::uint16_t>;
+template class BasicArithmeticSWIFTUnaryGate<std::uint32_t>;
+template class BasicArithmeticSWIFTUnaryGate<std::uint64_t>;
 
 // template <typename T>
 // BasicBooleanXArithmeticSWIFTBinaryGate<T>::BasicBooleanXArithmeticSWIFTBinaryGate(

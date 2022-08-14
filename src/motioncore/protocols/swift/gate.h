@@ -356,7 +356,7 @@ class ArithmeticSWIFTDummyGate : public detail::BasicArithmeticSWIFTUnaryGate<T>
   SWIFTProvider& swift_provider_;
   ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_;
   ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_offline_;
-  const int msg_snd_ = 500000;
+  const int msg_snd_ = 2;
 };
 
 // template <typename T>
