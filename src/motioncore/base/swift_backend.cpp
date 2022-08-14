@@ -38,9 +38,7 @@
 #include "crypto/multiplication_triple/sp_provider.h"
 #include "crypto/oblivious_transfer/ot_provider.h"
 #include "executor/new_gate_executor.h"
-#include "protocols/beavy/beavy_provider.h"
-#include "protocols/gmw/gmw_provider.h"
-#include "protocols/yao/yao_provider.h"
+#include "protocols/swift/swift_provider.h"
 #include "statistics/run_time_stats.h"
 #include "utility/logger.h"
 #include "utility/typedefs.h"
@@ -59,12 +57,11 @@ SwiftBackend::SwiftBackend(Communication::CommunicationLayer& comm_layer,
           [this] { comm_layer_.sync(); }, num_threads, logger_)),
       circuit_loader_(std::make_unique<CircuitLoader>()),
       run_time_stats_(1),
-      motion_base_provider_(std::make_unique<Crypto::MotionBaseProvider>(comm_layer_, logger_)) {
-//   gate_factories_.emplace(MPCProtocol::ArithmeticBEAVY, *beavy_provider_);
-//   gate_factories_.emplace(MPCProtocol::BooleanBEAVY, *beavy_provider_);
-//   gate_factories_.emplace(MPCProtocol::ArithmeticGMW, *gmw_provider_);
-//   gate_factories_.emplace(MPCProtocol::BooleanGMW, *gmw_provider_);
-//   gate_factories_.emplace(MPCProtocol::Yao, *yao_provider_);
+      motion_base_provider_(std::make_unique<Crypto::MotionBaseProvider>(comm_layer_, logger_)),
+      swift_provider_(std::make_unique<proto::swift::SWIFTProvider>(
+          comm_layer_, *gate_register_, *circuit_loader_, *motion_base_provider_, logger_)) {
+   gate_factories_.emplace(MPCProtocol::ArithmeticSWIFT, *swift_provider_);
+   gate_factories_.emplace(MPCProtocol::BooleanSWIFT, *swift_provider_);
   comm_layer_.start();
 }
 
@@ -74,9 +71,7 @@ void SwiftBackend::run_preprocessing() {
   run_time_stats_.back().record_start<Statistics::RunTimeStats::StatID::preprocessing>();
 
   motion_base_provider_->setup();
-//   beavy_provider_->setup();
-//   gmw_provider_->setup();
-//   yao_provider_->setup();
+  swift_provider_->setup();
 
   run_time_stats_.back().record_end<Statistics::RunTimeStats::StatID::preprocessing>();
 }

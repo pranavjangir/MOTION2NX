@@ -441,9 +441,9 @@ BooleanSWIFTANDGate::BooleanSWIFTANDGate(std::size_t gate_id, SWIFTProvider& swi
   delta_ab_.Resize(num_bits, true);
   if (my_id != 2) {
     share_future_ = swift_provider_.register_for_bits_message(1 - my_id, this->gate_id_,
-                                                                num_bits);
+                                                                num_bits, 0);
     share_future_offline_ = swift_provider_.register_for_bits_message(2, this->gate_id_,
-                                                                        num_bits);
+                                                                        num_bits, 1);
   }
 }
 
@@ -1026,9 +1026,9 @@ ArithmeticSWIFTMULGate<T>::ArithmeticSWIFTMULGate(std::size_t gate_id,
   delta_ab_.resize(num_simd, 0);
   if (my_id != 2) {
     share_future_ = swift_provider_.register_for_ints_message<T>(1 - my_id, this->gate_id_,
-                                                                num_simd);
+                                                                num_simd, 0);
     share_future_offline_ = swift_provider_.register_for_ints_message<T>(2, this->gate_id_,
-                                                                        num_simd);
+                                                                        num_simd, 1);
   }
 }
 
@@ -1155,8 +1155,8 @@ ArithmeticSWIFTDummyGate<T>::ArithmeticSWIFTDummyGate(std::size_t gate_id,
   auto my_id = swift_provider_.get_my_id();
   auto num_simd = this->input_->get_num_simd();
   if (my_id != 2) {
-    share_future_offline_ = swift_provider_.register_for_ints_message<T>(2, this->gate_id_, msg_snd_);
-    share_future_ = swift_provider_.register_for_ints_message<T>(1 - my_id, this->gate_id_, msg_snd_);
+    share_future_offline_ = swift_provider_.register_for_ints_message<T>(2, this->gate_id_, msg_snd_, 0);
+    share_future_ = swift_provider_.register_for_ints_message<T>(1 - my_id, this->gate_id_, msg_snd_, 1);
   }
 }
 

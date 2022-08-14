@@ -123,7 +123,7 @@ std::optional<Options> parse_program_options(int argc, char* argv[]) {
 
   const auto parse_party_argument =
       [](const auto& s) -> std::pair<std::size_t, MOTION::Communication::tcp_connection_config> {
-    const static std::regex party_argument_re("([01]),([^,]+),(\\d{1,5})");
+    const static std::regex party_argument_re("([012]),([^,]+),(\\d{1,5})");
     std::smatch match;
     if (!std::regex_match(s, match, party_argument_re)) {
       throw std::invalid_argument("invalid party argument");
@@ -230,17 +230,17 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   auto arith_shares = make_input_share(num_clients);
   auto dummy_output = make_dummy_round(arith_shares, arithmetic_tof);
   
-  auto boolean_shares = make_boolean_conversion(arith_shares, boolean_tof, num_clients);
-  int comparision_rounds = (int)(log2(num_clients)) + 2;
+  // auto boolean_shares = make_boolean_conversion(arith_shares, boolean_tof, num_clients);
+  // int comparision_rounds = (int)(log2(num_clients)) + 2;
   
-  for (std::size_t reps = 0; reps < comparision_rounds; ++reps) {
-      auto X = N_comparisions(backend, boolean_shares);
-  }
+  // for (std::size_t reps = 0; reps < comparision_rounds; ++reps) {
+  //     auto X = N_comparisions(backend, boolean_shares);
+  // }
 
-  auto dummy_output2 = make_dummy_round(arith_shares, arithmetic_tof);
+  // auto dummy_output2 = make_dummy_round(arith_shares, arithmetic_tof);
 
-  // Should there be a conversion gate here?
-  auto Y = N_comparisions(backend, boolean_shares);
+  // // Should there be a conversion gate here?
+  // auto Y = N_comparisions(backend, boolean_shares);
 
 
   // execute the protocol

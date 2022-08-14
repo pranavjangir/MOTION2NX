@@ -50,7 +50,9 @@ class MotionBaseProvider;
 }
 
 namespace proto {
-// TODO(pranav): Add stuff here.
+namespace swift {
+class SWIFTProvider;
+} // namespace swift
 }  // namespace proto
 
 namespace Statistics {
@@ -82,8 +84,7 @@ class SwiftBackend : public CircuitBuilder {
   std::vector<Statistics::RunTimeStats> run_time_stats_;
 
   std::unique_ptr<Crypto::MotionBaseProvider> motion_base_provider_;
-  // TODO(pranav): Add the swift provider as well.
-  // Remove the above providers?
+  std::unique_ptr<proto::swift::SWIFTProvider> swift_provider_;
 };
 
 }  // namespace MOTION

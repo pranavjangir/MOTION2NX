@@ -205,6 +205,12 @@ inline std::string ToString(MPCProtocol p) {
     case MPCProtocol::BooleanPlain: {
       return "BooleanPlain";
     }
+    case MPCProtocol::BooleanSWIFT: {
+      return "BooleanSWIFT";
+    }
+    case MPCProtocol::ArithmeticSWIFT: {
+      return "ArithmeticSWIFT";
+    }
     default:
       throw std::invalid_argument("Invalid MPCProtocol");
   }

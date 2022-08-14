@@ -57,8 +57,8 @@ SWIFTProvider::SWIFTProvider(Communication::CommunicationLayer& communication_la
       next_input_id_(0),
       logger_(std::move(logger)),
       fake_setup_(fake_setup) {
-  if (communication_layer.get_num_parties() != 2) {
-    throw std::logic_error("currently only two parties are supported");
+  if (communication_layer.get_num_parties() != 3) {
+    throw std::logic_error("currently only three parties are supported");
   }
 }
 
@@ -664,8 +664,8 @@ WireVector SWIFTProvider::make_convert_to_arithmetic_swift_gate(BooleanSWIFTWire
 template <typename T>
 WireVector SWIFTProvider::basic_make_convert_to_boolean_swift_gate(
     const ArithmeticSWIFTWireVector<T>&& in_a) {
-  [[maybe_unused]] auto num_wires = in_a.size();
-  assert(num_wires == ENCRYPTO::bit_size_v<T>);
+  // [[maybe_unused]] auto num_wires = in_a.size();
+  // assert(num_wires == ENCRYPTO::bit_size_v<T>);
   auto gate_id = gate_register_.get_next_gate_id();
   assert(in_a.size() == 1);
   auto gate = std::make_unique<ArithmeticToBooleanSWIFTGate<T>>(gate_id, *this, std::move(in_a[0]));
