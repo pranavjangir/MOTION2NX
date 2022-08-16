@@ -1159,8 +1159,8 @@ ArithmeticSWIFTDummyGate<T>::ArithmeticSWIFTDummyGate(std::size_t gate_id,
   auto my_id = swift_provider_.get_my_id();
   auto num_simd = this->input_->get_num_simd();
   if (my_id != 2) {
-    share_future_offline_ = swift_provider_.register_for_ints_message<T>(2, this->gate_id_, msg_snd_, 0);
-    share_future_ = swift_provider_.register_for_ints_message<T>(1 - my_id, this->gate_id_, msg_snd_, 1);
+    share_future_offline_ = swift_provider_.register_for_ints_message<T>(2, this->gate_id_, msg_snd_ * num_simd, 0);
+    share_future_ = swift_provider_.register_for_ints_message<T>(1 - my_id, this->gate_id_, msg_snd_ * num_simd, 1);
   }
 }
 
@@ -1185,7 +1185,7 @@ void ArithmeticSWIFTDummyGate<T>::evaluate_setup() {
   this->output_->set_setup_ready();
 
   if (my_id == 2) {
-    auto rand_vector = Helpers::RandomVector<T>(msg_snd_);
+    auto rand_vector = Helpers::RandomVector<T>(msg_snd_ * num_simd);
     swift_provider_.send_ints_message(0, this->gate_id_, rand_vector, 0);
     swift_provider_.send_ints_message(1, this->gate_id_, rand_vector, 0);
   } else {
@@ -1221,7 +1221,7 @@ void ArithmeticSWIFTDummyGate<T>::evaluate_online() {
     this->output_->set_online_ready();
     return;
   }
-  auto rand_vector = Helpers::RandomVector<T>(msg_snd_);
+  auto rand_vector = Helpers::RandomVector<T>(msg_snd_ * num_simd);
   swift_provider_.send_ints_message(1 - my_id, this->gate_id_, rand_vector, 1);
 
   auto vec = share_future_.get();
