@@ -45,6 +45,7 @@
 #include "protocols/swift/wire.h"
 #include "protocols/swift/gate.h"
 #include "protocols/swift/swift_provider.h"
+#include "utility/bit_vector.h"
 #include "protocols/swift/swift_provider.cpp"
 
 namespace po = boost::program_options;
@@ -160,62 +161,61 @@ std::unique_ptr<MOTION::Communication::CommunicationLayer> setup_communication(
 }
 
 auto make_input_share(const std::size_t num_clients) {
-    ArithmeticSWIFTWireVector<std::uint64_t> wires;
-    for (std::size_t i = 0; i < num_clients; ++i) {
-        auto wire_i = std::make_shared<ArithmeticSWIFTWire<std::uint64_t>>(/*num_simd = */1);
-        wire_i->get_public_share() = MOTION::Helpers::RandomVector<std::uint64_t>(1);
-        wire_i->get_secret_share() = {MOTION::Helpers::RandomVector<std::uint64_t>(1),
-        MOTION::Helpers::RandomVector<std::uint64_t>(1),
-        MOTION::Helpers::RandomVector<std::uint64_t>(1)};
-        wire_i->set_setup_ready();
-        wire_i->set_online_ready();
-        wires.push_back(std::move(wire_i));
-    }
-    return wires;
+    MOTION::proto::swift::ArithmeticSWIFTWireP<std::uint64_t> wirez = 
+    std::make_shared<ArithmeticSWIFTWire<std::uint64_t>>(/*num_simd = */num_clients);
+
+    wirez->get_public_share() = MOTION::Helpers::RandomVector<std::uint64_t>(num_clients);
+    wirez->get_secret_share() = {MOTION::Helpers::RandomVector<std::uint64_t>(num_clients),
+    MOTION::Helpers::RandomVector<std::uint64_t>(num_clients),
+    MOTION::Helpers::RandomVector<std::uint64_t>(num_clients)};
+    wirez->set_setup_ready();
+    wirez->set_online_ready();
+
+    return wirez;
 }
 
-MOTION::WireVector make_dummy_round(ArithmeticSWIFTWireVector<std::uint64_t>& wires,
+auto make_dummy_round(MOTION::proto::swift::ArithmeticSWIFTWireP<std::uint64_t> wire,
  MOTION::GateFactory& arith_factory) {
-    // Return these wires as the output.
-    // This is just dummy output though and will not be used.
-    MOTION::WireVector output_wires;
+    MOTION::WireVector wv;
+    auto casted_wire = std::dynamic_pointer_cast<MOTION::NewWire>(wire);
+    wv.push_back(std::move(casted_wire));
     auto& swift_arith_factory = dynamic_cast<SWIFTProvider&>(arith_factory);
-    for (auto& wire : wires) {
-      MOTION::WireVector wv;
-      auto casted_wire = std::dynamic_pointer_cast<MOTION::NewWire>(wire);
-      wv.push_back(std::move(casted_wire));
-      auto output = swift_arith_factory.make_dummy_gate<ArithmeticSWIFTDummyGate, std::uint64_t>(wv);
-      output_wires.push_back(std::move(output[0]));
-    }
-    return output_wires;
+    auto output = swift_arith_factory.make_dummy_gate<ArithmeticSWIFTDummyGate, std::uint64_t>(wv);
+    return output;
 }
 
-std::vector<MOTION::WireVector> make_boolean_conversion(ArithmeticSWIFTWireVector<std::uint64_t>& wires, 
+auto make_boolean_conversion(MOTION::proto::swift::ArithmeticSWIFTWireP<std::uint64_t> wire, 
 MOTION::GateFactory& bool_factory, const int num_clients) {
-    std::vector<MOTION::WireVector> boolean_wires(num_clients);
     auto& swift_bool_factory = dynamic_cast<SWIFTProvider&>(bool_factory);
-    for (int i = 0 ; i < num_clients; ++i) {
-        MOTION::WireVector wv;
-        auto casted_wire = std::dynamic_pointer_cast<MOTION::NewWire>(wires[i]);
-        wv.push_back(std::move(casted_wire));
-        boolean_wires[i] = swift_bool_factory.convert(MOTION::MPCProtocol::BooleanSWIFT, wv);
-    }
+    MOTION::WireVector wv;
+    auto casted_wire = std::dynamic_pointer_cast<MOTION::NewWire>(wire);
+    wv.push_back(std::move(casted_wire));
+    auto boolean_wires = swift_bool_factory.convert(MOTION::MPCProtocol::BooleanSWIFT, wv);
     return boolean_wires;
 }
 
-std::vector<MOTION::WireVector> N_comparisions(MOTION::SwiftBackend& backend,
- std::vector<MOTION::WireVector>& boolean_shares) {
-      // load a boolean circuit for to compute 'greater-than'
-    std::vector<MOTION::WireVector> dummy_output;
-    MOTION::CircuitLoader circuit_loader;
-    auto& gt_circuit =
-        circuit_loader.load_gt_circuit(64, /*depth_optimized=*/true);
-    // apply the circuit to adjacent boolean shares beacause why not.
-    for (int i = 1; i < boolean_shares.size(); ++i) {
-        auto output = backend.make_circuit(gt_circuit, boolean_shares[i-1], boolean_shares[i]);
-        dummy_output.push_back(output);
+auto N_comparisions(MOTION::SwiftBackend& backend,
+ MOTION::WireVector& boolean_shares, const ENCRYPTO::AlgorithmDescription& gt_circuit) {
+    // Create dummy wireVector having 64 wires.
+    // This will be used for comparision.
+    MOTION::WireVector A;
+    auto num_simd = boolean_shares[0]->get_num_simd();
+    for (std::size_t i = 0; i < boolean_shares.size(); ++i) {
+      auto new_wire = std::make_shared<BooleanSWIFTWire>(num_simd);
+      new_wire->get_public_share() = ENCRYPTO::BitVector<>::Random(num_simd);
+
+      new_wire->get_secret_share()[0] = ENCRYPTO::BitVector<>::Random(num_simd);
+      new_wire->get_secret_share()[1] = ENCRYPTO::BitVector<>::Random(num_simd);
+      new_wire->get_secret_share()[2] = ENCRYPTO::BitVector<>::Random(num_simd);
+
+      new_wire->set_setup_ready();
+      new_wire->set_online_ready();
+
+      auto casted_wire = std::dynamic_pointer_cast<MOTION::NewWire>(new_wire);
+      A.push_back(std::move(casted_wire));
     }
-    return dummy_output;
+    auto output = backend.make_circuit(gt_circuit, boolean_shares, A);
+    return output;
 }
 
 void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
@@ -237,15 +237,19 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   
   auto boolean_shares = make_boolean_conversion(arith_shares, boolean_tof, num_clients);
   int comparision_rounds = (int)(log2(num_clients)) + 2;
+
+  MOTION::CircuitLoader circuit_loader;
+  auto& gt_circuit =
+        circuit_loader.load_gt_circuit(64, /*depth_optimized=*/true);
   
   for (std::size_t reps = 0; reps < comparision_rounds; ++reps) {
-    auto X = N_comparisions(backend, boolean_shares);
+    auto X = N_comparisions(backend, boolean_shares, gt_circuit);
   }
 
   auto dummy_output2 = make_dummy_round(arith_shares, arithmetic_tof);
 
   // Should there be a conversion gate here?
-  auto Y = N_comparisions(backend, boolean_shares);
+  auto Y = N_comparisions(backend, boolean_shares, gt_circuit);
 
 
   // execute the protocol
