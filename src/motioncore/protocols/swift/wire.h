@@ -35,7 +35,12 @@ class SWIFTProvider;
 
 class BooleanSWIFTWire : public NewWire, public ENCRYPTO::enable_wait_setup {
  public:
-  BooleanSWIFTWire(std::size_t num_simd) : NewWire(num_simd) {}
+  BooleanSWIFTWire(std::size_t num_simd) : NewWire(num_simd) {
+    public_share_.Resize(num_simd, /*zero_fill=*/true);
+    secret_share_[0].Resize(num_simd, /*zero_fill=*/true);
+    secret_share_[1].Resize(num_simd, /*zero_fill=*/true);
+    secret_share_[2].Resize(num_simd, /*zero_fill=*/true);
+  }
   MPCProtocol get_protocol() const noexcept override { return MPCProtocol::BooleanSWIFT; }
   std::size_t get_bit_size() const noexcept override { return 1; }
   std::pair<ENCRYPTO::BitVector<>&, std::array<ENCRYPTO::BitVector<>, 3>&> get_share() {

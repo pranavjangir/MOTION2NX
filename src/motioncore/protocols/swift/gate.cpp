@@ -437,8 +437,7 @@ BooleanSWIFTANDGate::BooleanSWIFTANDGate(std::size_t gate_id, SWIFTProvider& swi
       swift_provider_(swift_provider) {
   auto num_bits = count_bits(inputs_a_);
   auto my_id = swift_provider_.get_my_id();
-  share_future_ = swift_provider_.register_for_bits_message(1 - my_id, gate_id_, num_bits);
-  delta_ab_.Resize(num_bits, true);
+  delta_ab_.Reserve(Helpers::Convert::BitsToBytes(num_bits));
   if (my_id != 2) {
     share_future_ = swift_provider_.register_for_bits_message(1 - my_id, this->gate_id_,
                                                                 num_bits, 0);
@@ -466,7 +465,7 @@ void BooleanSWIFTANDGate::evaluate_setup() {
       int modd = (share_id  % 2);
       wire_o->get_secret_share()[share_id] = ENCRYPTO::BitVector<>(wire_o->get_num_simd(), modd);
     }
-    wire_o->set_setup_ready();
+    // wire_o->set_setup_ready();
   }
 
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
@@ -492,8 +491,12 @@ void BooleanSWIFTANDGate::evaluate_setup() {
   if (my_id == 0 || my_id == 1) {
       delta_ab_ = share_future_offline_.get();
   } else {
-      swift_provider_.send_bits_message(0, this->gate_id_, delta_ab_);
-      swift_provider_.send_bits_message(0, this->gate_id_, delta_ab_);
+      swift_provider_.send_bits_message(0, this->gate_id_, delta_ab_, 1);
+      swift_provider_.send_bits_message(1, this->gate_id_, delta_ab_, 1);
+  }
+
+  for (auto& wire_o : outputs_) {
+    wire_o->set_setup_ready();
   }
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
@@ -551,7 +554,7 @@ void BooleanSWIFTANDGate::evaluate_online() {
   }
   assert(for_other_party.GetSize() == num_bits);
   assert(delta_ab_.GetSize() == num_bits);
-  swift_provider_.send_bits_message(1 - my_id, this->gate_id_, for_other_party);
+  swift_provider_.send_bits_message(1 - my_id, this->gate_id_, for_other_party, 0);
   auto from_other_party = share_future_.get();
 
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
@@ -1051,7 +1054,6 @@ void ArithmeticSWIFTMULGate<T>::evaluate_setup() {
   for (std::size_t share_id = 0; share_id < 3; ++share_id) {
     this->output_->get_secret_share()[share_id] = std::vector<T>(num_simd, -1*share_id);
   }
-  this->output_->set_setup_ready();
 
   this->input_a_->wait_setup();
   this->input_b_->wait_setup();
@@ -1070,9 +1072,11 @@ void ArithmeticSWIFTMULGate<T>::evaluate_setup() {
         }
       }
     }
-    swift_provider_.send_ints_message(0, this->gate_id_, delta_ab_);
-    swift_provider_.send_ints_message(1, this->gate_id_, delta_ab_);
+    swift_provider_.send_ints_message(0, this->gate_id_, delta_ab_, 1);
+    swift_provider_.send_ints_message(1, this->gate_id_, delta_ab_, 1);
   }
+
+  this->output_->set_setup_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = swift_provider_.get_logger();
@@ -1125,7 +1129,7 @@ void ArithmeticSWIFTMULGate<T>::evaluate_online() {
       op_sec_share[2][i] + y2;
     }
   }
-  swift_provider_.send_ints_message(1 - my_id, this->gate_id_, for_other_party);
+  swift_provider_.send_ints_message(1 - my_id, this->gate_id_, for_other_party, 0);
   const auto other_party_share = share_future_.get();
   std::transform(std::begin(opshare), std::end(opshare), std::begin(other_party_share),
                  std::begin(opshare), std::plus{});
@@ -1182,8 +1186,8 @@ void ArithmeticSWIFTDummyGate<T>::evaluate_setup() {
 
   if (my_id == 2) {
     auto rand_vector = Helpers::RandomVector<T>(msg_snd_);
-    swift_provider_.send_ints_message(0, this->gate_id_, rand_vector);
-    swift_provider_.send_ints_message(1, this->gate_id_, rand_vector);
+    swift_provider_.send_ints_message(0, this->gate_id_, rand_vector, 0);
+    swift_provider_.send_ints_message(1, this->gate_id_, rand_vector, 0);
   } else {
     auto vec = share_future_offline_.get();
     for (std::size_t i = 0; i < vec.size(); ++i) {
@@ -1218,7 +1222,7 @@ void ArithmeticSWIFTDummyGate<T>::evaluate_online() {
     return;
   }
   auto rand_vector = Helpers::RandomVector<T>(msg_snd_);
-  swift_provider_.send_ints_message(1 - my_id, this->gate_id_, rand_vector);
+  swift_provider_.send_ints_message(1 - my_id, this->gate_id_, rand_vector, 1);
 
   auto vec = share_future_.get();
   for (std::size_t i = 0; i < vec.size(); ++i) {

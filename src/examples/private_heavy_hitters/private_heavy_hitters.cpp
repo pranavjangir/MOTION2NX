@@ -54,6 +54,7 @@ struct Options {
   std::size_t threads;
   bool json;
   std::size_t num_repetitions;
+  std::size_t num_clients;
   std::size_t num_simd;
   bool sync_between_setup_and_online;
   MOTION::MPCProtocol arithmetic_protocol;
@@ -80,6 +81,7 @@ std::optional<Options> parse_program_options(int argc, char* argv[]) {
     ("boolean-protocol", po::value<std::string>()->required(), "2PC protocol (Yao, GMW or BEAVY)")
     ("input-value", po::value<std::uint64_t>()->required(), "input value for Yao's Millionaires' Problem")
     ("repetitions", po::value<std::size_t>()->default_value(1), "number of repetitions")
+    ("num_clients", po::value<std::uint64_t>()->required(), "number of clients to run for")
     ("num-simd", po::value<std::size_t>()->default_value(1), "number of SIMD values")
     ("sync-between-setup-and-online", po::bool_switch()->default_value(false),
      "run a synchronization protocol before the online phase starts")
@@ -110,6 +112,7 @@ std::optional<Options> parse_program_options(int argc, char* argv[]) {
   options.threads = vm["threads"].as<std::size_t>();
   options.json = vm["json"].as<bool>();
   options.num_repetitions = vm["repetitions"].as<std::size_t>();
+  options.num_clients = vm["num_clients"].as<std::size_t>();
   options.num_simd = vm["num-simd"].as<std::size_t>();
   options.sync_between_setup_and_online = vm["sync-between-setup-and-online"].as<bool>();
   options.no_run = vm["no-run"].as<bool>();
@@ -164,6 +167,8 @@ auto make_input_share(const std::size_t num_clients) {
         wire_i->get_secret_share() = {MOTION::Helpers::RandomVector<std::uint64_t>(1),
         MOTION::Helpers::RandomVector<std::uint64_t>(1),
         MOTION::Helpers::RandomVector<std::uint64_t>(1)};
+        wire_i->set_setup_ready();
+        wire_i->set_online_ready();
         wires.push_back(std::move(wire_i));
     }
     return wires;
@@ -219,7 +224,7 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
     return;
   }
 
-  const int num_clients = 400000;
+  const int num_clients = options.num_clients;
 
   MOTION::MPCProtocol arithmetic_protocol = options.arithmetic_protocol;
   MOTION::MPCProtocol boolean_protocol = options.boolean_protocol;
@@ -230,17 +235,17 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   auto arith_shares = make_input_share(num_clients);
   auto dummy_output = make_dummy_round(arith_shares, arithmetic_tof);
   
-  // auto boolean_shares = make_boolean_conversion(arith_shares, boolean_tof, num_clients);
-  // int comparision_rounds = (int)(log2(num_clients)) + 2;
+  auto boolean_shares = make_boolean_conversion(arith_shares, boolean_tof, num_clients);
+  int comparision_rounds = (int)(log2(num_clients)) + 2;
   
-  // for (std::size_t reps = 0; reps < comparision_rounds; ++reps) {
-  //     auto X = N_comparisions(backend, boolean_shares);
-  // }
+  for (std::size_t reps = 0; reps < comparision_rounds; ++reps) {
+    auto X = N_comparisions(backend, boolean_shares);
+  }
 
-  // auto dummy_output2 = make_dummy_round(arith_shares, arithmetic_tof);
+  auto dummy_output2 = make_dummy_round(arith_shares, arithmetic_tof);
 
-  // // Should there be a conversion gate here?
-  // auto Y = N_comparisions(backend, boolean_shares);
+  // Should there be a conversion gate here?
+  auto Y = N_comparisions(backend, boolean_shares);
 
 
   // execute the protocol

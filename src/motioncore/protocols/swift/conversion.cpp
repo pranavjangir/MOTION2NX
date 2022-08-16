@@ -31,6 +31,8 @@
 #include "crypto/oblivious_transfer/ot_flavors.h"
 #include "crypto/oblivious_transfer/ot_provider.h"
 #include "protocols/gmw/wire.h"
+#include "executor/execution_context.h"
+#include "utility/fiber_thread_pool/fiber_thread_pool.hpp"
 #include "algorithm/circuit_loader.h"
 #include "algorithm/make_circuit.h"
 #include "utility/constants.h"
@@ -364,7 +366,9 @@ ArithmeticToBooleanSWIFTGate<T>::ArithmeticToBooleanSWIFTGate(std::size_t gate_i
   std::generate_n(std::back_inserter(output_), num_wires,
                   [num_simd] { return std::make_shared<BooleanSWIFTWire>(num_simd); });
   const auto my_id = swift_provider_.get_my_id();
-  share_future_ = swift_provider_.register_for_ints_message<T>(1 - my_id, gate_id_, num_simd);
+  if (my_id != 2) {
+    share_future_ = swift_provider_.register_for_ints_message<T>(1 - my_id, gate_id_, num_simd);
+  }
 
   // Addition gate stuff.
   // The addition gate will be inside this gate, and will be run in the ONLINE phase of this gate.
@@ -444,6 +448,52 @@ void ArithmeticToBooleanSWIFTGate<T>::evaluate_setup() {
 }
 
 template <typename T>
+void ArithmeticToBooleanSWIFTGate<T>::evaluate_setup_with_context(MOTION::ExecutionContext& exec_ctx) {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: ArithmeticToBooleanSWIFTGate<T>::evaluate_setup start", gate_id_));
+    }
+  }
+  // TODO(pranav): Make this really random.
+  std::size_t cleartext_r = 3;
+  constexpr std::size_t bit_size = 8 * sizeof(T);
+  const auto bit_converted = std::bitset<bit_size>(cleartext_r);
+  assert(bit_converted.size() == bit_size);
+
+  auto num_simd = input_->get_num_simd();
+
+  for (int bit_pos = 0; bit_pos < bit_size; ++bit_pos) {
+    auto& pub_share = output_random_[bit_pos]->get_public_share();
+    pub_share = ENCRYPTO::BitVector<>(num_simd, bit_converted[bit_pos]);
+    output_random_[bit_pos]->set_setup_ready();
+    // This wire will contain the public value of Z-r, all publicly known.
+    // Therefore, this wire's setup is by default always ready.
+    output_public_[bit_pos]->set_setup_ready();
+  }
+
+  for (auto& gate : gates_) {
+    exec_ctx.fpool_->post([&] { gate->evaluate_setup(); });
+  }
+
+  for (std::size_t bit_pos = 0; bit_pos < bit_size; ++bit_pos) {
+      addition_result_[bit_pos]->wait_setup();
+      // Copy the wire vector values to the output.
+      output_[bit_pos]->get_secret_share() = addition_result_[bit_pos]->get_secret_share();
+      output_[bit_pos]->set_setup_ready();
+    }
+
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: ArithmeticToBooleanSWIFTGate<T>::evaluate_setup end", gate_id_));
+    }
+  }
+}
+
+template <typename T>
 void ArithmeticToBooleanSWIFTGate<T>::evaluate_online() {
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = swift_provider_.get_logger();
@@ -497,6 +547,81 @@ void ArithmeticToBooleanSWIFTGate<T>::evaluate_online() {
 
   for (auto& gate : gates_) {
     gate->evaluate_online();
+  }
+
+  for (std::size_t bit_pos = 0; bit_pos < num_wires; ++bit_pos) {
+    addition_result_[bit_pos]->wait_online();
+    // Copy the wire vector values to the output.
+    output_[bit_pos]->get_public_share() = addition_result_[bit_pos]->get_public_share();
+    output_[bit_pos]->set_online_ready();
+  }
+
+
+
+
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: ArithmeticToBooleanSWIFTGate<T>::evaluate_online end", gate_id_));
+    }
+  }
+}
+
+template <typename T>
+void ArithmeticToBooleanSWIFTGate<T>::evaluate_online_with_context(MOTION::ExecutionContext& exec_ctx) {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: ArithmeticToBooleanSWIFTGate<T>::evaluate_online start", gate_id_));
+    }
+  }
+
+  input_->wait_setup();
+  input_->wait_online();
+  const auto my_id = swift_provider_.get_my_id();
+  const auto num_wires = ENCRYPTO::bit_size_v<T>;
+  const auto num_simd = input_->get_num_simd();
+  if (my_id == 2) {
+    for (std::size_t wire_i = 0; wire_i < num_wires; ++wire_i) {
+      output_[wire_i]->set_online_ready();
+    }
+    return;
+  }
+
+  auto ZminusR = input_->get_public_share();
+  std::vector<T> for_other_party(num_simd);
+  if (my_id == 0) {
+    for (std::size_t i = 0; i < num_simd; ++i) {
+      ZminusR[i] -= (input_->get_secret_share()[0][i] + input_->get_secret_share()[2][i] + 2);
+      for_other_party[i] = input_->get_secret_share()[0][i];
+    }
+  } else {
+    for (std::size_t i = 0; i < num_simd; ++i) {
+      ZminusR[i] -= (input_->get_secret_share()[1][i] + input_->get_secret_share()[2][i] + 3);
+      for_other_party[i] = input_->get_secret_share()[1][i] + 1;
+    }
+  }
+
+  swift_provider_.send_ints_message<T>(1 - my_id, this->gate_id_, for_other_party);
+  auto from_other_party = share_future_.get();
+  std::transform(std::begin(ZminusR), std::end(ZminusR),
+   std::begin(from_other_party), std::begin(ZminusR), std::minus{});
+
+  for (std::size_t wire_i = 0; wire_i < num_wires; ++wire_i) {
+    for (std::size_t ele = 0; ele < num_simd; ++ele) {
+      const auto E = ZminusR[ele];
+      auto& pub_share = output_public_[wire_i]->get_public_share();
+      // output_public_[wire_i]->get_public_share()[ele] = ((E&(1LL << wire_i)) ? 1 : 0);
+      pub_share.Set(((E&(1LL << wire_i)) ? 1 : 0), ele);
+    }
+    output_public_[wire_i]->set_online_ready();
+    output_random_[wire_i]->set_online_ready();
+  }
+
+  for (auto& gate : gates_) {
+    exec_ctx.fpool_->post([&] { gate->evaluate_online(); });
   }
 
   for (std::size_t bit_pos = 0; bit_pos < num_wires; ++bit_pos) {
