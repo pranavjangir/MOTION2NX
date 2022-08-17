@@ -249,7 +249,7 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   // auto dummy_output2 = make_dummy_round(arith_shares, arithmetic_tof);
 
   // // Should there be a conversion gate here?
-  // auto Y = N_comparisions(backend, boolean_shares, gt_circuit);
+  auto Y = N_comparisions(backend, boolean_shares, gt_circuit);
 
 
   // execute the protocol
