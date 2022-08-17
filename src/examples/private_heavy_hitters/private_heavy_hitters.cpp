@@ -235,21 +235,21 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   auto arith_shares = make_input_share(num_clients);
   auto dummy_output = make_dummy_round(arith_shares, arithmetic_tof);
   
-  auto boolean_shares = make_boolean_conversion(arith_shares, boolean_tof, num_clients);
-  int comparision_rounds = (int)(log2(num_clients)) + 2;
+  // auto boolean_shares = make_boolean_conversion(arith_shares, boolean_tof, num_clients);
+  // int comparision_rounds = (int)(log2(num_clients)) + 2;
 
-  MOTION::CircuitLoader circuit_loader;
-  auto& gt_circuit =
-        circuit_loader.load_gt_circuit(64, /*depth_optimized=*/true);
+  // MOTION::CircuitLoader circuit_loader;
+  // auto& gt_circuit =
+  //       circuit_loader.load_gt_circuit(64, /*depth_optimized=*/true);
   
-  for (std::size_t reps = 0; reps < comparision_rounds; ++reps) {
-    auto X = N_comparisions(backend, boolean_shares, gt_circuit);
-  }
+  // for (std::size_t reps = 0; reps < comparision_rounds; ++reps) {
+  //   auto X = N_comparisions(backend, boolean_shares, gt_circuit);
+  // }
 
-  auto dummy_output2 = make_dummy_round(arith_shares, arithmetic_tof);
+  // auto dummy_output2 = make_dummy_round(arith_shares, arithmetic_tof);
 
-  // Should there be a conversion gate here?
-  auto Y = N_comparisions(backend, boolean_shares, gt_circuit);
+  // // Should there be a conversion gate here?
+  // auto Y = N_comparisions(backend, boolean_shares, gt_circuit);
 
 
   // execute the protocol
