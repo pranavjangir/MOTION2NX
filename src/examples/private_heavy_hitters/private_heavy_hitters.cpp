@@ -238,9 +238,9 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   auto boolean_shares = make_boolean_conversion(arith_shares, boolean_tof, num_clients);
   // int comparision_rounds = (int)(log2(num_clients)) + 2;
 
-  // MOTION::CircuitLoader circuit_loader;
-  // auto& gt_circuit =
-  //       circuit_loader.load_gt_circuit(64, /*depth_optimized=*/true);
+  MOTION::CircuitLoader circuit_loader;
+  auto& gt_circuit =
+        circuit_loader.load_gt_circuit(64, /*depth_optimized=*/true);
   
   // for (std::size_t reps = 0; reps < comparision_rounds; ++reps) {
   //   auto X = N_comparisions(backend, boolean_shares, gt_circuit);
