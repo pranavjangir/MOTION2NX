@@ -28,6 +28,9 @@
 #include "utility/bit_vector.h"
 #include "utility/reusable_future.h"
 #include "utility/type_traits.hpp"
+#include "algorithm/circuit_loader.h"
+#include "algorithm/make_circuit.h"
+#include "executor/execution_context.h"
 #include "wire.h"
 
 namespace ENCRYPTO::ObliviousTransfer {
@@ -150,6 +153,24 @@ class BooleanSWIFTINVGate : public detail::BasicBooleanSWIFTUnaryGate {
 
  private:
   bool is_my_job_;
+};
+
+class BooleanSWIFTSORTGate : public detail::BasicBooleanSWIFTUnaryGate {
+ public:
+  BooleanSWIFTSORTGate(std::size_t gate_id, SWIFTProvider&, BooleanSWIFTWireVector&&);
+  bool need_setup() const noexcept override { return true; }
+  bool need_online() const noexcept override { return true; }
+  void evaluate_setup() override;
+  // void evaluate_setup_with_context(ExecutionContext&) override;
+  void evaluate_online() override;
+  // void evaluate_online_with_context(ExecutionContext&) override;
+
+  private:
+  SWIFTProvider& swift_provider_;
+  ENCRYPTO::AlgorithmDescription gt_circuit_;
+  MOTION::CircuitLoader circuit_loader_;
+  std::vector<std::size_t> permutation_;
+  std::vector<std::pair<std::size_t, std::size_t>> unsorted_intervals_;
 };
 
 class BooleanSWIFTXORGate : public detail::BasicBooleanSWIFTBinaryGate {
