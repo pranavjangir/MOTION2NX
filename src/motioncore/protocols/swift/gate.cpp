@@ -279,16 +279,16 @@ BooleanSWIFTOutputGate::BooleanSWIFTOutputGate(std::size_t gate_id, SWIFTProvide
       inputs_(std::move(inputs)) {
   std::size_t my_id = swift_provider_.get_my_id();
   auto num_bits = count_bits(inputs_);
-  if (output_owner_ == ALL_PARTIES || output_owner_ == my_id) {
-    share_futures_ = swift_provider_.register_for_bits_messages(gate_id_, num_bits);
+  if (output_owner_ != ALL_PARTIES) {
+    throw std::logic_error("BooleanSWIFT output gate only supports reconstruction towards all parties currently.");
   }
   my_secret_share_.Reserve(Helpers::Convert::BitsToBytes(num_bits));
+  share_futures_ = swift_provider_.register_for_bits_messages(this->gate_id_, num_bits);
 }
 
 ENCRYPTO::ReusableFiberFuture<std::vector<ENCRYPTO::BitVector<>>>
 BooleanSWIFTOutputGate::get_output_future() {
-  std::size_t my_id = swift_provider_.get_my_id();
-  if (output_owner_ == ALL_PARTIES || output_owner_ == my_id) {
+  if (output_owner_ == ALL_PARTIES) {
     return output_promise_.get_future();
   } else {
     throw std::logic_error("not this parties output");
@@ -303,21 +303,18 @@ void BooleanSWIFTOutputGate::evaluate_setup() {
           fmt::format("Gate {}: BooleanSWIFTOutputGate::evaluate_setup start", gate_id_));
     }
   }
-
-  throw std::runtime_error("Not yet implemented");
-
-  // for (const auto& wire : inputs_) {
-  //   wire->wait_setup();
-  //   my_secret_share_.Append(wire->get_secret_share());
-  // }
-  // std::size_t my_id = swift_provider_.get_my_id();
-  // if (output_owner_ != my_id) {
-  //   if (output_owner_ == ALL_PARTIES) {
-  //     swift_provider_.broadcast_bits_message(gate_id_, my_secret_share_);
-  //   } else {
-  //     swift_provider_.send_bits_message(output_owner_, gate_id_, my_secret_share_);
-  //   }
-  // }
+  std::size_t my_id = swift_provider_.get_my_id();
+  for (const auto& wire : inputs_) {
+    wire->wait_setup();
+    if (my_id == 0) {
+      my_secret_share_.Append(wire->get_secret_share()[0]);
+    } else if (my_id == 1) {
+      my_secret_share_.Append(wire->get_secret_share()[1]);
+    }
+  }
+  if (my_id != 2) {
+    swift_provider_.send_bits_message(1 - my_id, gate_id_, my_secret_share_);
+  }
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = swift_provider_.get_logger();
@@ -337,31 +334,43 @@ void BooleanSWIFTOutputGate::evaluate_online() {
     }
   }
 
-  throw std::runtime_error("Not yet implemented");
 
-  // std::size_t my_id = swift_provider_.get_my_id();
-  // if (output_owner_ == ALL_PARTIES || output_owner_ == my_id) {
-  //   std::size_t num_parties = swift_provider_.get_num_parties();
-  //   for (std::size_t party_id = 0; party_id < num_parties; ++party_id) {
-  //     if (party_id == my_id) {
-  //       continue;
-  //     }
-  //     const auto other_share = share_futures_[party_id].get();
-  //     my_secret_share_ ^= other_share;
-  //   }
-  //   std::vector<ENCRYPTO::BitVector<>> outputs;
-  //   outputs.reserve(num_wires_);
-  //   std::size_t bit_offset = 0;
-  //   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
-  //     auto num_simd = inputs_[wire_i]->get_num_simd();
-  //     auto& output =
-  //         outputs.emplace_back(my_secret_share_.Subset(bit_offset, bit_offset + num_simd));
-  //     inputs_[wire_i]->wait_online();
-  //     output ^= inputs_[wire_i]->get_public_share();
-  //     bit_offset += num_simd;
-  //   }
-  //   output_promise_.set_value(std::move(outputs));
-  // }
+  const std::size_t my_id = swift_provider_.get_my_id();
+  const std::size_t num_simd = inputs_[0]->get_num_simd();
+  if (my_id == 2) {
+    std::vector<ENCRYPTO::BitVector<>> outputs;
+    const auto party0_result = share_futures_[0].get();
+    const auto party1_result = share_futures_[1].get();
+    assert(party0_result == party1_result);
+    for (std::size_t wire_i = 0 ; wire_i < num_wires_; ++wire_i) {
+      outputs.push_back(party0_result.Subset(wire_i * num_simd, (wire_i + 1) * num_simd));
+    }
+    output_promise_.set_value(std::move(outputs));
+    return;
+  }
+  ENCRYPTO::BitVector<> bv;
+  bv.Reserve(Helpers::Convert::BitsToBytes(num_simd * num_wires_));
+  for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+    bv.Append(inputs_[wire_i]->get_secret_share()[2]);
+  }
+  const auto other_share = share_futures_[1 - my_id].get();
+  bv ^= (other_share ^ my_secret_share_);
+
+  std::vector<ENCRYPTO::BitVector<>> outputs;
+  ENCRYPTO::BitVector<> for_offline_party;
+  for_offline_party.Reserve(Helpers::Convert::BitsToBytes(num_simd * num_wires_));
+  outputs.reserve(num_wires_);
+  std::size_t bit_offset = 0;
+  for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+    auto& output =
+        outputs.emplace_back(bv.Subset(bit_offset, bit_offset + num_simd));
+    inputs_[wire_i]->wait_online();
+    output ^= inputs_[wire_i]->get_public_share();
+    for_offline_party.Append(output);
+    bit_offset += num_simd;
+  }
+  swift_provider_.send_bits_message(2, this->gate_id_, for_offline_party);
+  output_promise_.set_value(std::move(outputs));
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = swift_provider_.get_logger();
@@ -414,6 +423,7 @@ BooleanSWIFTSORTGate::BooleanSWIFTSORTGate(std::size_t gate_id, SWIFTProvider& s
                                          !swift_provider.is_my_job(gate_id)),
                                          swift_provider_(swift_provider) {
   // num of elements to be sorted = num_simd
+  auto my_id = swift_provider_.get_my_id();
   auto num_simd = inputs_[0]->get_num_simd();
   gt_circuit_ =
         circuit_loader_.load_gt_circuit(64, /*depth_optimized=*/true);
@@ -423,6 +433,9 @@ BooleanSWIFTSORTGate::BooleanSWIFTSORTGate(std::size_t gate_id, SWIFTProvider& s
   }
   // Specify that the interval [0 ... n-1] is currently unsorted.
   unsorted_intervals_ = {{0, num_simd - 1}};
+  if (my_id == 0 || my_id == 1) {
+    share_future_ = swift_provider_.register_for_bits_message(1 - my_id, this->gate_id_, num_wires_ * num_simd);
+  }
 }
 
 void BooleanSWIFTSORTGate::evaluate_setup() {
@@ -441,6 +454,8 @@ void BooleanSWIFTSORTGate::evaluate_setup() {
 
 void BooleanSWIFTSORTGate::evaluate_online() {
 
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = inputs_[0]->get_num_simd();
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
     const auto& w_in = inputs_[wire_i];
     w_in->wait_online();
@@ -522,10 +537,13 @@ void BooleanSWIFTSORTGate::evaluate_online() {
       for (auto& gate : gates) {
         gate->evaluate_online();
       }
-      output_wires[0]->wait_online();
+      auto comparision_results_future = swift_provider_.make_boolean_output_gate_my(MOTION::ALL_PARTIES, output_wires);
+      // output_wires[0]->wait_online();
+      auto comparision_results = comparision_results_future.get();
+      assert(comparision_results.size() == 1);
       cur_idx = 0;
-      auto bool_wire = std::dynamic_pointer_cast<BooleanSWIFTWire>(output_wires[0]);
-      assert(bool_wire->get_num_simd() == new_gate_num_simd);
+      // auto bool_wire = std::dynamic_pointer_cast<BooleanSWIFTWire>(output_wires[0]);
+      assert(comparision_results[0].GetSize() == new_gate_num_simd);
       std::vector<std::pair<std::size_t, std::size_t>> new_intervals;
       for (const auto& it : unsorted_intervals_) {
         const std::size_t strt = it.first;
@@ -534,7 +552,7 @@ void BooleanSWIFTSORTGate::evaluate_online() {
         for (std::size_t i = strt; i < ed; ++i) {
           std::size_t result_idx = cur_idx + (i - strt);
           // Means array elemet at i is greater than pivot element.
-          if (bool_wire->get_public_share().Get(result_idx) == 1) {
+          if (comparision_results[0].Get(result_idx) == 1) {
             p--;
             std::swap(permutation_[i], permutation_[p]);
           }
@@ -557,10 +575,49 @@ void BooleanSWIFTSORTGate::evaluate_online() {
 
   // TODO(pranav): Fix this SORTING output.
   // After doing something about the comparision output reconstruction.
-  // Also figure out how the final sharing should be compensated for.
-  for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
-    outputs_[wire_i]->set_online_ready();
+  if (my_id != 2) {
+    ENCRYPTO::BitVector<> for_other_party(num_wires_ * num_simd);
+    for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+      for (std::size_t i = 0; i < num_simd; ++i) {
+        bool to_send = false;
+        if (my_id == 0) {
+          to_send = outputs_[wire_i]->get_secret_share()[0].Get(i) ^ 
+          inputs_[wire_i]->get_secret_share()[0].Get(permutation_[i]);
+        } else {
+          to_send = outputs_[wire_i]->get_secret_share()[1].Get(i) ^ 
+          inputs_[wire_i]->get_secret_share()[1].Get(permutation_[i]);
+        }
+        for_other_party.Set(to_send, wire_i*num_simd + i);
+      }
+    }
+    swift_provider_.send_bits_message(1 - my_id, this->gate_id_, for_other_party);
+    const auto from_other_party = share_future_.get();
+
+    for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+      for (std::size_t i = 0; i < num_simd; ++i) {
+        bool new_public_value = from_other_party.Get(wire_i*num_simd + i) ^ 
+        inputs_[wire_i]->get_public_share().Get(permutation_[i]) ^
+        outputs_[wire_i]->get_secret_share()[2].Get(i) ^
+        inputs_[wire_i]->get_secret_share()[2].Get(permutation_[i]);
+        if (my_id == 0) {
+          new_public_value ^= outputs_[wire_i]->get_secret_share()[0].Get(i) ^
+          inputs_[wire_i]->get_secret_share()[0].Get(permutation_[i]);
+        } else {
+          new_public_value ^= outputs_[wire_i]->get_secret_share()[1].Get(i) ^
+          inputs_[wire_i]->get_secret_share()[1].Get(permutation_[i]);
+        }
+        outputs_[wire_i]->get_public_share().Set(new_public_value, i);
+      }
+      outputs_[wire_i]->set_online_ready();
+    }
+  } else {
+    for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+      outputs_[wire_i]->set_online_ready();
+    }
   }
+  // for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+  //   outputs_[wire_i]->set_online_ready();
+  // }
   
 }
 

@@ -171,6 +171,7 @@ class BooleanSWIFTSORTGate : public detail::BasicBooleanSWIFTUnaryGate {
   MOTION::CircuitLoader circuit_loader_;
   std::vector<std::size_t> permutation_;
   std::vector<std::pair<std::size_t, std::size_t>> unsorted_intervals_;
+  ENCRYPTO::ReusableFiberFuture<ENCRYPTO::BitVector<>> share_future_;
 };
 
 class BooleanSWIFTXORGate : public detail::BasicBooleanSWIFTBinaryGate {
