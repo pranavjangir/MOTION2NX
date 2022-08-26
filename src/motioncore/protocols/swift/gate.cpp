@@ -538,11 +538,9 @@ void BooleanSWIFTSORTGate::evaluate_online() {
         gate->evaluate_online();
       }
       auto comparision_results_future = swift_provider_.make_boolean_output_gate_my(MOTION::ALL_PARTIES, output_wires);
-      // output_wires[0]->wait_online();
       auto comparision_results = comparision_results_future.get();
       assert(comparision_results.size() == 1);
       cur_idx = 0;
-      // auto bool_wire = std::dynamic_pointer_cast<BooleanSWIFTWire>(output_wires[0]);
       assert(comparision_results[0].GetSize() == new_gate_num_simd);
       std::vector<std::pair<std::size_t, std::size_t>> new_intervals;
       for (const auto& it : unsorted_intervals_) {
@@ -573,8 +571,6 @@ void BooleanSWIFTSORTGate::evaluate_online() {
     
   } // One sorting pass finishes. ~log(n) total of these.
 
-  // TODO(pranav): Fix this SORTING output.
-  // After doing something about the comparision output reconstruction.
   if (my_id != 2) {
     ENCRYPTO::BitVector<> for_other_party(num_wires_ * num_simd);
     for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
