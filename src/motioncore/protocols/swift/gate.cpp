@@ -753,6 +753,7 @@ void BooleanSWIFTANDGate::evaluate_online() {
     auto& wire_b = this->inputs_b_[wire_i];
     wire_a->wait_online();
     wire_b->wait_online();
+    this->outputs_[wire_i]->wait_setup();
     auto& a_sec_share = wire_a->get_secret_share();
     auto& b_sec_share = wire_b->get_secret_share();
     auto& a_pub_share = wire_a->get_public_share();
@@ -798,10 +799,10 @@ void BooleanSWIFTANDGate::evaluate_online() {
 
     if (my_id == 0) {
       opshare ^= (a_sec_share[0]&b_sec_share[2]) ^ (a_sec_share[2]&b_sec_share[0]) ^ (a_sec_share[2]&b_sec_share[2]) ^ 
-                 op_sec_share[2] ^ y1;
+                  y1;
     } else {
       opshare ^= (a_sec_share[1]&b_sec_share[2]) ^ (a_sec_share[2]&b_sec_share[1]) ^ (a_sec_share[2]&b_sec_share[2]) ^
-                    op_sec_share[2] ^ y2;
+                   y2;
     }
     this->outputs_[wire_i]->set_online_ready();
   }
@@ -1287,7 +1288,7 @@ void ArithmeticSWIFTMULGate<T>::evaluate_setup() {
         for (std::size_t k = 0; k < num_simd; ++k) {
           auto contrib = 
           this->input_a_->get_secret_share()[i][k] * this->input_b_->get_secret_share()[j][k];
-          delta_ab_[num_simd] += contrib;
+          delta_ab_[k] += contrib;
         }
       }
     }
@@ -1324,6 +1325,7 @@ void ArithmeticSWIFTMULGate<T>::evaluate_online() {
 
   this->input_a_->wait_online();
   this->input_b_->wait_online();
+  this->output_->wait_setup();
   auto& a_sec_share = this->input_a_->get_secret_share();
   auto& b_sec_share = this->input_b_->get_secret_share();
   auto& a_pub_share = this->input_a_->get_public_share();
@@ -1341,11 +1343,13 @@ void ArithmeticSWIFTMULGate<T>::evaluate_online() {
     if (my_id == 0) {
       for_other_party[i] = y1 + a_sec_share[0][i]*b_sec_share[2][i] + a_sec_share[2][i]*b_sec_share[0][i];
       opshare[i] += a_sec_share[0][i]*b_sec_share[2][i] + a_sec_share[2][i]*b_sec_share[0][i] + a_sec_share[2][i]*b_sec_share[2][i] + 
-      op_sec_share[2][i] + y1;
+      // op_sec_share[2][i] + y1;
+      y1;
     } else {
       for_other_party[i] = y2 + a_sec_share[1][i]*b_sec_share[2][i] + a_sec_share[2][i]*b_sec_share[1][i];
       opshare[i] += a_sec_share[1][i]*b_sec_share[2][i] + a_sec_share[2][i]*b_sec_share[1][i] + a_sec_share[2][i]*b_sec_share[2][i] +
-      op_sec_share[2][i] + y2;
+      // op_sec_share[2][i] + y2;
+      y2;
     }
   }
   swift_provider_.send_ints_message(1 - my_id, this->gate_id_, for_other_party, 0);
