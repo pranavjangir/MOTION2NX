@@ -180,59 +180,11 @@ auto make_boolean_share(bool value) {
   return wire;
 }
 
-// auto make_dummy_round(MOTION::proto::swift::ArithmeticSWIFTWireP<std::uint64_t> wire,
-//  MOTION::GateFactory& arith_factory) {
-//     MOTION::WireVector wv;
-//     auto casted_wire = std::dynamic_pointer_cast<MOTION::NewWire>(wire);
-//     wv.push_back(std::move(casted_wire));
-//     auto& swift_arith_factory = dynamic_cast<SWIFTProvider&>(arith_factory);
-//     auto output = swift_arith_factory.make_dummy_gate<ArithmeticSWIFTDummyGate, std::uint64_t>(wv);
-//     return output;
-// }
-
-// auto make_boolean_conversion(MOTION::proto::swift::ArithmeticSWIFTWireP<std::uint64_t> wire, 
-// MOTION::GateFactory& bool_factory, const int num_clients) {
-//     auto& swift_bool_factory = dynamic_cast<SWIFTProvider&>(bool_factory);
-//     MOTION::WireVector wv;
-//     auto casted_wire = std::dynamic_pointer_cast<MOTION::NewWire>(wire);
-//     wv.push_back(std::move(casted_wire));
-//     auto boolean_wires = swift_bool_factory.convert(MOTION::MPCProtocol::BooleanSWIFT, wv);
-//     return boolean_wires;
-// }
-
-// auto N_comparisions(MOTION::SwiftBackend& backend,
-//  MOTION::WireVector& boolean_shares, const ENCRYPTO::AlgorithmDescription& gt_circuit) {
-//     // Create dummy wireVector having 64 wires.
-//     // This will be used for comparision.
-//     MOTION::WireVector A;
-//     auto num_simd = boolean_shares[0]->get_num_simd();
-//     for (std::size_t i = 0; i < boolean_shares.size(); ++i) {
-//       auto new_wire = std::make_shared<BooleanSWIFTWire>(num_simd);
-//       new_wire->get_public_share() = ENCRYPTO::BitVector<>::Random(num_simd);
-
-//       new_wire->get_secret_share()[0] = ENCRYPTO::BitVector<>::Random(num_simd);
-//       new_wire->get_secret_share()[1] = ENCRYPTO::BitVector<>::Random(num_simd);
-//       new_wire->get_secret_share()[2] = ENCRYPTO::BitVector<>::Random(num_simd);
-
-//       new_wire->set_setup_ready();
-//       new_wire->set_online_ready();
-
-//       auto casted_wire = std::dynamic_pointer_cast<MOTION::NewWire>(new_wire);
-//       A.push_back(std::move(casted_wire));
-//     }
-//     auto output = backend.make_circuit(gt_circuit, boolean_shares, A);
-//     return output;
-// }
-
 void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
 
   if (options.no_run) {
     return;
   }
-
-  // Get two arithmetic wires. (Just public values)
-  // Get two boolean wires. (Just public values)
-  // Output gate check as well.
   // MULT and AND verification.
 
   MOTION::MPCProtocol arithmetic_protocol = options.arithmetic_protocol;
