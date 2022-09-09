@@ -178,6 +178,21 @@ ENCRYPTO::ReusableFiberFuture<BitValues> SWIFTProvider::make_boolean_output_gate
   return future;
 }
 
+std::pair<std::unique_ptr<NewGate>, ENCRYPTO::ReusableFiberFuture<BitValues>>
+ SWIFTProvider::make_external_boolean_output_gate_my(
+    std::size_t output_owner, const WireVector& in) {
+  if (output_owner != ALL_PARTIES && output_owner != my_id_) {
+    throw std::logic_error("trying to create output gate for wrong party");
+  }
+  auto gate_id = gate_register_.get_next_gate_id();
+  auto input = cast_wires(in);
+  auto gate =
+      std::make_unique<BooleanSWIFTOutputGate>(gate_id, *this, std::move(input), output_owner);
+  auto future = gate->get_output_future();
+  // gate_register_.register_gate(std::move(gate));
+  return {std::move(gate), std::move(future)};
+}
+
 void SWIFTProvider::make_boolean_output_gate_other(std::size_t output_owner, const WireVector& in) {
   if (output_owner == ALL_PARTIES || output_owner == my_id_) {
     throw std::logic_error("trying to create output gate for wrong party");
@@ -350,6 +365,8 @@ std::vector<std::shared_ptr<NewWire>> SWIFTProvider::make_unary_gate(
     //   return make_neg_gate(in_a);
     case ENCRYPTO::PrimitiveOperationType::SQR:
       return make_sqr_gate(in_a);
+    case ENCRYPTO::PrimitiveOperationType::SORT:
+      return make_sort_gate(in_a);
     default:
       throw std::logic_error(
           fmt::format("SWIFT does not support the unary operation {}", ToString(op)));
@@ -397,6 +414,20 @@ std::pair<std::unique_ptr<NewGate>, WireVector> SWIFTProvider::construct_inv_gat
 
 WireVector SWIFTProvider::make_inv_gate(const WireVector& in_a) {
   auto [gate, output] = construct_inv_gate(in_a);
+  gate_register_.register_gate(std::move(gate));
+  return output;
+}
+
+std::pair<std::unique_ptr<NewGate>, WireVector> SWIFTProvider::construct_sort_gate(
+    const WireVector& in_a) {
+  auto gate_id = gate_register_.get_next_gate_id();
+  auto gate = std::make_unique<BooleanSWIFTSORTGate>(gate_id, *this, cast_wires(in_a));
+  auto output = gate->get_output_wires();
+  return {std::move(gate), cast_wires(std::move(output))};
+}
+
+WireVector SWIFTProvider::make_sort_gate(const WireVector& in_a) {
+  auto [gate, output] = construct_sort_gate(in_a);
   gate_register_.register_gate(std::move(gate));
   return output;
 }

@@ -161,9 +161,9 @@ class BooleanSWIFTSORTGate : public detail::BasicBooleanSWIFTUnaryGate {
   bool need_setup() const noexcept override { return true; }
   bool need_online() const noexcept override { return true; }
   void evaluate_setup() override;
-  // void evaluate_setup_with_context(ExecutionContext&) override;
+  void evaluate_setup_with_context(ExecutionContext&) override;
   void evaluate_online() override;
-  // void evaluate_online_with_context(ExecutionContext&) override;
+  void evaluate_online_with_context(ExecutionContext&) override;
 
   private:
   SWIFTProvider& swift_provider_;
@@ -172,6 +172,8 @@ class BooleanSWIFTSORTGate : public detail::BasicBooleanSWIFTUnaryGate {
   std::vector<std::size_t> permutation_;
   std::vector<std::pair<std::size_t, std::size_t>> unsorted_intervals_;
   ENCRYPTO::ReusableFiberFuture<ENCRYPTO::BitVector<>> share_future_;
+  std::vector<std::vector<std::unique_ptr<NewGate>>> gates_;
+  std::vector<MOTION::WireVector> all_wires_;
 };
 
 class BooleanSWIFTXORGate : public detail::BasicBooleanSWIFTBinaryGate {

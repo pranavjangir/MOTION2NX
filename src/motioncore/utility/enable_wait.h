@@ -41,6 +41,8 @@ class enable_wait_online {
     online_ready_ = false;
   }
   void wait_online() const noexcept { online_cond_.Wait(); }
+  // For debugging purposes.
+  bool get_online_status() { return online_ready_; }
 
  private:
   bool online_ready_ = false;
@@ -62,6 +64,9 @@ class enable_wait_setup {
     setup_ready_ = false;
   }
   void wait_setup() const noexcept { setup_cond_.Wait(); }
+
+  // For debugging purposes.
+  bool get_setup_status() { return setup_ready_; }
 
  private:
   bool setup_ready_ = false;

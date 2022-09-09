@@ -12,6 +12,7 @@ add_subdirectory(sha256)
 add_subdirectory(triple_generator)
 add_subdirectory(private_heavy_hitters)
 add_subdirectory(swift_basic_verification)
+add_subdirectory(sorting_verification)
 
 if (MOTION_BUILD_ONNX_ADAPTER)
   add_subdirectory(onnx2motion)

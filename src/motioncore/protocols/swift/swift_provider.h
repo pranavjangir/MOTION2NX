@@ -27,6 +27,7 @@
 
 #include "base/gate_factory.h"
 #include "protocols/common/comm_mixin.h"
+#include "communication/communication_layer.h"
 #include "tensor/tensor_op.h"
 #include "tensor/tensor_op_factory.h"
 #include "utility/bit_vector.h"
@@ -120,6 +121,9 @@ class SWIFTProvider : public GateFactory,
   // Boolean outputs
   ENCRYPTO::ReusableFiberFuture<BitValues> make_boolean_output_gate_my(std::size_t output_owner,
                                                                        const WireVector&) override;
+  std::pair<NewGateP, ENCRYPTO::ReusableFiberFuture<BitValues>> make_external_boolean_output_gate_my(std::size_t output_owner,
+                                                                       const WireVector&);
+                                                                       
   void make_boolean_output_gate_other(std::size_t output_owner, const WireVector&) override;
 
   // arithmetic outputs
@@ -209,12 +213,14 @@ class SWIFTProvider : public GateFactory,
   template <typename BinaryGate, bool plain = false>
   WireVector make_boolean_binary_gate(const WireVector& in_a, const WireVector& in_b);
   WireVector make_inv_gate(const WireVector& in_a);
+  WireVector make_sort_gate(const WireVector& in_a);
   WireVector make_xor_gate(const WireVector& in_a, const WireVector& in_b);
   WireVector make_and_gate(const WireVector& in_a, const WireVector& in_b);
   template <typename BinaryGate, bool plain = false>
   std::pair<NewGateP, WireVector> construct_boolean_binary_gate(const WireVector& in_a,
                                                                 const WireVector& in_b);
   std::pair<NewGateP, WireVector> construct_inv_gate(const WireVector& in_a);
+  std::pair<NewGateP, WireVector> construct_sort_gate(const WireVector& in_a);
   std::pair<NewGateP, WireVector> construct_xor_gate(const WireVector& in_a,
                                                      const WireVector& in_b);
   std::pair<NewGateP, WireVector> construct_and_gate(const WireVector& in_a,
@@ -242,6 +248,9 @@ class SWIFTProvider : public GateFactory,
   WireVector make_convert_to_boolean_swift_gate(const WireVector& in_a);
 
  public:
+  void wait_for_others() {
+      communication_layer_.sync();
+  }
   // TODO: design API for bit x integer operations
   template <typename T>
   WireVector basic_make_convert_bit_to_arithmetic_swift_gate(BooleanSWIFTWireP in_a);

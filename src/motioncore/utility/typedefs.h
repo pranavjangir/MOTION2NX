@@ -39,6 +39,7 @@ enum class PrimitiveOperationType : std::uint8_t {
   MUX,  // for Boolean circuit only
   INV,  // for Boolean circuit only
   OR,   // for Boolean circuit only
+  SORT,   // for Boolean circuit only
   NEG,  // for arithmetic circuit only
   ADD,  // for arithmetic circuit only
   MUL,  // for arithmetic circuit only

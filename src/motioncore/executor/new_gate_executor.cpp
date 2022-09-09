@@ -76,7 +76,7 @@ void NewGateExecutor::evaluate_setup_online_multi_threaded(Statistics::RunTimeSt
 
   MOTION::ExecutionContext exec_ctx{.num_threads_ = num_threads_,
                             .fpool_ = std::make_unique<ENCRYPTO::FiberThreadPool>(
-                                std::max(std::size_t{2}, num_threads_), 2 * register_.get_num_gates())};
+                                std::max(std::size_t{2}, num_threads_), /*2 * register_.get_num_gates()*/1200)};
 
   // ------------------------------ setup phase ------------------------------
   stats.record_start<Statistics::RunTimeStats::StatID::gates_setup>();
