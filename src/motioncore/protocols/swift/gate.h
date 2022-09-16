@@ -77,6 +77,18 @@ class BasicBooleanSWIFTUnaryGate : public NewGate {
   BooleanSWIFTWireVector outputs_;
 };
 
+template <typename T>
+class BasicBooleanToArithmeticSWIFTUnaryGate : public NewGate {
+ public:
+  BasicBooleanToArithmeticSWIFTUnaryGate(std::size_t gate_id, BooleanSWIFTWireVector&&, bool forward);
+  ArithmeticSWIFTWireP<T>& get_output_wire() noexcept { return output_; }
+
+ protected:
+  std::size_t num_wires_;
+  const BooleanSWIFTWireVector inputs_;
+  ArithmeticSWIFTWireP<T> output_;
+};
+
 }  // namespace detail
 
 class SWIFTProvider;
@@ -174,6 +186,27 @@ class BooleanSWIFTSORTGate : public detail::BasicBooleanSWIFTUnaryGate {
   ENCRYPTO::ReusableFiberFuture<ENCRYPTO::BitVector<>> share_future_;
   std::vector<std::vector<std::unique_ptr<NewGate>>> gates_;
   std::vector<MOTION::WireVector> all_wires_;
+};
+
+class BooleanSWIFTSHUFFLEGate : public detail::BasicBooleanSWIFTUnaryGate {
+ public:
+  BooleanSWIFTSHUFFLEGate(std::size_t gate_id, SWIFTProvider&, BooleanSWIFTWireVector&&);
+  bool need_setup() const noexcept override { return false; }
+  bool need_online() const noexcept override { return true; }
+  void evaluate_setup() override;
+  void evaluate_setup_with_context(ExecutionContext&) override;
+  void evaluate_online() override;
+  void evaluate_online_with_context(ExecutionContext&) override;
+
+  private:
+  SWIFTProvider& swift_provider_;
+  ENCRYPTO::AlgorithmDescription gt_circuit_;
+  MOTION::CircuitLoader circuit_loader_;
+  std::vector<ENCRYPTO::ReusableFiberFuture<ENCRYPTO::BitVector<>>> share_futures_;
+  // Indexed by [round number], [s12, s23, s13].
+  std::size_t seeds_[3][3];
+  // Indexed by [round number] and then [v12, v23, v13].
+  std::vector<ENCRYPTO::BitVector<>> random_vectors_[3][3];
 };
 
 class BooleanSWIFTXORGate : public detail::BasicBooleanSWIFTBinaryGate {

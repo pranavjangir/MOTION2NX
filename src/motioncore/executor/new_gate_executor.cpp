@@ -91,7 +91,7 @@ void NewGateExecutor::evaluate_setup_online_multi_threaded(Statistics::RunTimeSt
         });
       }
     }
-    register_.wait_setup();
+    // register_.wait_setup();
   }
 
   stats.record_end<Statistics::RunTimeStats::StatID::gates_setup>();

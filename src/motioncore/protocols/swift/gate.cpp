@@ -25,6 +25,7 @@
 #include <functional>
 #include <stdexcept>
 #include <unistd.h>
+#include <random>
 #include "gate.h"
 
 #include "base/gate_factory.h"
@@ -55,6 +56,20 @@ static WireVector cast_wires(BooleanSWIFTWireVector wires) {
   std::transform(std::begin(wires), std::end(wires), std::begin(result),
                  [](auto& w) { return std::shared_ptr<NewWire>(w); });
   return result;
+}
+
+ENCRYPTO::BitVector<> permute_with_seed(const ENCRYPTO::BitVector<> bv, const std::size_t seed) {
+  ENCRYPTO::BitVector<> op(bv.GetSize());
+  std::mt19937 rng(seed);
+  std::vector<bool> tmp(bv.GetSize());
+  for (int i = 0 ; i < bv.GetSize(); ++i) {
+    tmp[i] = bv.Get(i);
+  }
+  std::shuffle(tmp.begin(), tmp.end(), rng);
+  for (int i = 0 ; i < bv.GetSize(); ++i) {
+    op.Set(tmp[i], i);
+  }
+  return op;
 }
 
 namespace detail {
@@ -106,6 +121,21 @@ BasicBooleanSWIFTUnaryGate::BasicBooleanSWIFTUnaryGate(std::size_t gate_id,
   outputs_.reserve(num_wires_);
     std::generate_n(std::back_inserter(outputs_), num_wires_,
                     [num_simd] { return std::make_shared<BooleanSWIFTWire>(num_simd); });
+}
+template <typename T>
+BasicBooleanToArithmeticSWIFTUnaryGate<T>::BasicBooleanToArithmeticSWIFTUnaryGate(std::size_t gate_id,
+                                                       BooleanSWIFTWireVector&& in, bool forward)
+    : NewGate(gate_id), num_wires_(in.size()), inputs_(std::move(in)) {
+  if (num_wires_ == 0) {
+    throw std::logic_error("number of wires need to be positive");
+  }
+  auto num_simd = inputs_[0]->get_num_simd();
+  for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+    if (inputs_[wire_i]->get_num_simd() != num_simd) {
+      throw std::logic_error("number of SIMD values need to be the same for all wires");
+    }
+  }
+  output_ = std::make_shared<ArithmeticSWIFTWire<T>>(num_simd);
 }
 
 }  // namespace detail
@@ -320,6 +350,7 @@ void BooleanSWIFTOutputGate::evaluate_setup() {
   if (my_id != 2) {
     swift_provider_.send_bits_message(1 - my_id, gate_id_, my_secret_share_);
   }
+  this->set_setup_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = swift_provider_.get_logger();
@@ -339,9 +370,18 @@ void BooleanSWIFTOutputGate::evaluate_online() {
     }
   }
 
-
+  this->wait_setup();
   const std::size_t my_id = swift_provider_.get_my_id();
   const std::size_t num_simd = inputs_[0]->get_num_simd();
+  my_secret_share_.Clear();
+  for (const auto& wire : inputs_) {
+    wire->wait_setup();
+    if (my_id == 0) {
+      my_secret_share_.Append(wire->get_secret_share()[0]);
+    } else if (my_id == 1) {
+      my_secret_share_.Append(wire->get_secret_share()[1]);
+    }
+  }
   if (my_id == 2) {
     std::vector<ENCRYPTO::BitVector<>> outputs;
     const auto party0_result = share_futures_[0].get();
@@ -393,10 +433,6 @@ BooleanSWIFTINVGate::BooleanSWIFTINVGate(std::size_t gate_id, const SWIFTProvide
       is_my_job_(swift_provider.is_my_job(gate_id)) {}
 
 void BooleanSWIFTINVGate::evaluate_setup() {
-  // if (!is_my_job_) {
-  //   return;
-  // }
-
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
     const auto& w_in = inputs_[wire_i];
     w_in->wait_setup();
@@ -406,19 +442,332 @@ void BooleanSWIFTINVGate::evaluate_setup() {
     }
     w_o->set_setup_ready();
   }
+  this->set_setup_ready();
 }
 
 void BooleanSWIFTINVGate::evaluate_online() {
-  // if (!is_my_job_) {
-  //   return;
-  // }
-
+  this->wait_setup();
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
     const auto& w_in = inputs_[wire_i];
     w_in->wait_online();
     auto& w_o = outputs_[wire_i];
     w_o->get_public_share() = ~w_in->get_public_share();
     w_o->set_online_ready();
+  }
+}
+
+
+BooleanSWIFTSHUFFLEGate::BooleanSWIFTSHUFFLEGate(std::size_t gate_id, SWIFTProvider& swift_provider,
+                                         BooleanSWIFTWireVector&& in)
+    : detail::BasicBooleanSWIFTUnaryGate(gate_id, std::move(in),
+                                         !swift_provider.is_my_job(gate_id)),
+                                         swift_provider_(swift_provider) {
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = inputs_[0]->get_num_simd();
+  // Random seeds for different rounds.
+  // These seeds determine the final permutation.
+  if (my_id == 0) {
+    for (int i = 0; i < 3; ++i) {
+      seeds_[i][0] = (((1^2) + i)) ^ gate_id_;
+      seeds_[i][2] = (((1^3) + i)) ^ gate_id_;
+    }
+  } else if (my_id == 1) {
+    for (int i = 0; i < 3; ++i) {
+      seeds_[i][0] = (((1^2) + i)) ^ gate_id_;
+      seeds_[i][1] = (((2^3) + i)) ^ gate_id_;
+    }
+  } else {
+    for (int i = 0; i < 3; ++i) {
+      seeds_[i][1] = (((2^3) + i)) ^ gate_id_;
+      seeds_[i][2] = (((1^3) + i)) ^ gate_id_;
+    }
+  }
+  // TODO(pranav): Compress this loop.
+  for (int round = 0; round < 3; ++round) {
+    if (my_id == 0) {
+      std::mt19937 rng12(seeds_[round][0]);
+      std::mt19937 rng13(seeds_[round][2]);
+      for (int i = 0; i < num_wires_; ++i) {
+        ENCRYPTO::BitVector<> bv12(num_simd);
+        ENCRYPTO::BitVector<> bv13(num_simd);
+        for (int j = 0; j < num_simd; ++j) {
+          bv12.Set(rng12()%2, j);
+          bv13.Set(rng13()%2, j);
+        }
+        random_vectors_[round][0].push_back(bv12);
+        random_vectors_[round][2].push_back(bv13);
+      }
+    } else if (my_id == 1) {
+      std::mt19937 rng12(seeds_[round][0]);
+      std::mt19937 rng23(seeds_[round][1]);
+      for (int i = 0; i < num_wires_; ++i) {
+        ENCRYPTO::BitVector<> bv12(num_simd);
+        ENCRYPTO::BitVector<> bv23(num_simd);
+        for (int j = 0; j < num_simd; ++j) {
+          bv12.Set(rng12()%2, j);
+          bv23.Set(rng23()%2, j);
+        }
+        random_vectors_[round][0].push_back(bv12);
+        random_vectors_[round][1].push_back(bv23);
+      }
+    } else {
+      std::mt19937 rng23(seeds_[round][1]);
+      std::mt19937 rng13(seeds_[round][2]);
+      for (int i = 0; i < num_wires_; ++i) {
+        ENCRYPTO::BitVector<> bv23(num_simd);
+        ENCRYPTO::BitVector<> bv13(num_simd);
+        for (int j = 0; j < num_simd; ++j) {
+          bv23.Set(rng23()%2, j);
+          bv13.Set(rng13()%2, j);
+        }
+        random_vectors_[round][1].push_back(bv23);
+        random_vectors_[round][2].push_back(bv13);
+      }
+    }
+  }
+  share_futures_ = swift_provider_.register_for_bits_messages(this->gate_id_, num_wires_ * num_simd);
+}
+
+void BooleanSWIFTSHUFFLEGate::evaluate_setup() {
+  return;
+  for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+    const auto& w_in = inputs_[wire_i];
+    w_in->wait_setup();
+  }
+}
+
+void BooleanSWIFTSHUFFLEGate::evaluate_setup_with_context(MOTION::ExecutionContext& exec_ctx) {
+  return;
+  for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+    const auto& w_in = inputs_[wire_i];
+    w_in->wait_setup();
+  }
+  this->set_setup_ready();
+}
+
+void BooleanSWIFTSHUFFLEGate::evaluate_online() {
+  // TODO(pranav): Implement this as well.
+  throw std::runtime_error("Not yet implemented.");
+  for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+    const auto& w_in = inputs_[wire_i];
+    w_in->wait_online();
+    auto& w_o = outputs_[wire_i];
+    w_o->get_public_share() = ~w_in->get_public_share();
+    w_o->set_online_ready();
+  }
+}
+
+void BooleanSWIFTSHUFFLEGate::evaluate_online_with_context(MOTION::ExecutionContext& exec_ctx) {
+  // THERE IS NO SETUP PHASE HERE!!!!!
+  // this->wait_setup();
+  // Get RSS sharing.
+  BooleanSWIFTWireVector rss_shares = inputs_;
+  for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+    const auto& w_in = inputs_[wire_i];
+    w_in->wait_setup();
+    w_in->wait_online();
+  }
+  for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+    auto& wire = rss_shares[wire_i];
+    wire->get_secret_share()[0] ^= wire->get_public_share();
+  }
+
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = inputs_[0]->get_num_simd();
+
+  // First round //////////////////////////////////////////////////////
+  // Fix share[0] and share[1].
+  if (my_id == 2) {
+    for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+      auto& wire = rss_shares[wire_i];
+      wire->get_secret_share()[0] = random_vectors_[0][2][wire_i];
+      wire->get_secret_share()[1] = random_vectors_[0][1][wire_i];
+    }
+  } else {
+    ENCRYPTO::BitVector<> for_other_party;
+    for_other_party.Reserve(Helpers::Convert::BitsToBytes(num_wires_ * num_simd));
+    for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+      auto& wire = rss_shares[wire_i];
+      // gives us pi_A, pi_B, pi_C.
+      for (int i = 0 ; i < 3; ++i) {
+        wire->get_secret_share()[i] = permute_with_seed(wire->get_secret_share()[i], seeds_[0][0]);
+      }
+    }
+    if (my_id == 0) {
+      for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+        auto& wire = rss_shares[wire_i];
+        auto wire_op = wire->get_secret_share()[0] ^ random_vectors_[0][2][wire_i];
+        for_other_party.Append(wire_op);
+      }
+      assert(for_other_party.GetSize() == num_wires_ * num_simd);
+
+      swift_provider_.send_bits_message(1, this->gate_id_, for_other_party);
+
+      auto from_other_party = share_futures_[1].get();
+      // for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+      //   auto& wire = rss_shares[wire_i];
+      //   auto wire_op = wire->get_secret_share()[0] ^ random_vectors_[0][0][wire_i];
+      //   for_other_party.Append(wire_op);
+      // }
+      for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+        auto& wire = rss_shares[wire_i];
+        auto for_other = for_other_party.Subset(wire_i*num_simd, (wire_i+1)*num_simd);
+        auto from_other = from_other_party.Subset(wire_i*num_simd, (wire_i+1)*num_simd);
+        wire->get_secret_share()[0] = random_vectors_[0][2][wire_i];
+        wire->get_secret_share()[2] = wire->get_secret_share()[2] ^
+        for_other ^ from_other;
+      }
+    } else {
+      for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+        auto& wire = rss_shares[wire_i];
+        auto wire_op = wire->get_secret_share()[1] ^ random_vectors_[0][1][wire_i];
+        for_other_party.Append(wire_op);
+      }
+      assert(for_other_party.GetSize() == num_wires_ * num_simd);
+
+      swift_provider_.send_bits_message(0, this->gate_id_, for_other_party);
+
+      auto from_other_party = share_futures_[0].get();
+      // for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+      //   auto& wire = rss_shares[wire_i];
+      //   auto wire_op = wire->get_secret_share()[0] ^ random_vectors_[0][0][wire_i];
+      //   for_other_party.Append(wire_op);
+      // }
+      for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+        auto& wire = rss_shares[wire_i];
+        auto for_other = for_other_party.Subset(wire_i*num_simd, (wire_i+1)*num_simd);
+        auto from_other = from_other_party.Subset(wire_i*num_simd, (wire_i+1)*num_simd);
+        wire->get_secret_share()[1] = random_vectors_[0][1][wire_i];
+        wire->get_secret_share()[2] = wire->get_secret_share()[2] ^
+        for_other ^ from_other;
+      }
+    }
+  }
+  // Second round //////////////////////////////////////////////////////
+  // Fix share[1] and share[2].
+  if (my_id == 1) {
+    for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+      auto& wire = rss_shares[wire_i];
+      wire->get_secret_share()[1] = random_vectors_[1][1][wire_i];
+      wire->get_secret_share()[2] = random_vectors_[1][0][wire_i];
+    }
+  } else {
+    ENCRYPTO::BitVector<> for_other_party;
+    for_other_party.Reserve(Helpers::Convert::BitsToBytes(num_wires_ * num_simd));
+    for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+      auto& wire = rss_shares[wire_i];
+      // gives us pi_A, pi_B, pi_C.
+      for (int i = 0 ; i < 3; ++i) {
+        wire->get_secret_share()[i] = permute_with_seed(wire->get_secret_share()[i], seeds_[1][2]);
+      }
+    }
+    if (my_id == 0) {
+      for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+        auto& wire = rss_shares[wire_i];
+        auto wire_op = wire->get_secret_share()[2] ^ random_vectors_[1][0][wire_i];
+        for_other_party.Append(wire_op);
+      }
+      assert(for_other_party.GetSize() == num_wires_ * num_simd);
+
+      swift_provider_.send_bits_message(2, this->gate_id_, for_other_party);
+
+      auto from_other_party = share_futures_[2].get();
+      for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+        auto& wire = rss_shares[wire_i];
+        auto for_other = for_other_party.Subset(wire_i*num_simd, (wire_i+1)*num_simd);
+        auto from_other = from_other_party.Subset(wire_i*num_simd, (wire_i+1)*num_simd);
+        wire->get_secret_share()[2] = random_vectors_[1][0][wire_i];
+        wire->get_secret_share()[0] = wire->get_secret_share()[0] ^
+        for_other ^ from_other;
+      }
+    } else {
+      for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+        auto& wire = rss_shares[wire_i];
+        auto wire_op = wire->get_secret_share()[1] ^ random_vectors_[1][1][wire_i];
+        for_other_party.Append(wire_op);
+      }
+      assert(for_other_party.GetSize() == num_wires_ * num_simd);
+
+      swift_provider_.send_bits_message(0, this->gate_id_, for_other_party);
+
+      auto from_other_party = share_futures_[0].get();
+      for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+        auto& wire = rss_shares[wire_i];
+        auto for_other = for_other_party.Subset(wire_i*num_simd, (wire_i+1)*num_simd);
+        auto from_other = from_other_party.Subset(wire_i*num_simd, (wire_i+1)*num_simd);
+        wire->get_secret_share()[1] = random_vectors_[1][1][wire_i];
+        wire->get_secret_share()[0] = wire->get_secret_share()[0] ^
+        for_other ^ from_other;
+      }
+    }
+  }
+
+  // Third round //////////////////////////////////////////////////////
+  // Fix share[0] and share[2].
+  if (my_id == 0) {
+    for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+      auto& wire = rss_shares[wire_i];
+      wire->get_secret_share()[0] = random_vectors_[2][2][wire_i];
+      wire->get_secret_share()[2] = random_vectors_[2][0][wire_i];
+    }
+  } else {
+    ENCRYPTO::BitVector<> for_other_party;
+    for_other_party.Reserve(Helpers::Convert::BitsToBytes(num_wires_ * num_simd));
+    for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+      auto& wire = rss_shares[wire_i];
+      // gives us pi_A, pi_B, pi_C.
+      for (int i = 0 ; i < 3; ++i) {
+        wire->get_secret_share()[i] = permute_with_seed(wire->get_secret_share()[i], seeds_[2][1]);
+      }
+    }
+    if (my_id == 1) {
+      for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+        auto& wire = rss_shares[wire_i];
+        auto wire_op = wire->get_secret_share()[2] ^ random_vectors_[2][0][wire_i];
+        for_other_party.Append(wire_op);
+      }
+      assert(for_other_party.GetSize() == num_wires_ * num_simd);
+
+      swift_provider_.send_bits_message(2, this->gate_id_, for_other_party);
+
+      auto from_other_party = share_futures_[2].get();
+      for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+        auto& wire = rss_shares[wire_i];
+        auto for_other = for_other_party.Subset(wire_i*num_simd, (wire_i+1)*num_simd);
+        auto from_other = from_other_party.Subset(wire_i*num_simd, (wire_i+1)*num_simd);
+        wire->get_secret_share()[2] = random_vectors_[2][0][wire_i];
+        wire->get_secret_share()[1] = wire->get_secret_share()[1] ^
+        for_other ^ from_other;
+      }
+    } else {
+      for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+        auto& wire = rss_shares[wire_i];
+        auto wire_op = wire->get_secret_share()[0] ^ random_vectors_[2][2][wire_i];
+        for_other_party.Append(wire_op);
+      }
+      assert(for_other_party.GetSize() == num_wires_ * num_simd);
+
+      swift_provider_.send_bits_message(1, this->gate_id_, for_other_party);
+
+      auto from_other_party = share_futures_[1].get();
+      for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+        auto& wire = rss_shares[wire_i];
+        auto for_other = for_other_party.Subset(wire_i*num_simd, (wire_i+1)*num_simd);
+        auto from_other = from_other_party.Subset(wire_i*num_simd, (wire_i+1)*num_simd);
+        wire->get_secret_share()[0] = random_vectors_[2][2][wire_i];
+        wire->get_secret_share()[1] = wire->get_secret_share()[1] ^
+        for_other ^ from_other;
+      }
+    }
+  }
+
+  for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
+    auto& wire = outputs_[wire_i];
+    for (int i = 0; i < 3; ++i) {
+      wire->get_secret_share()[i] = rss_shares[wire_i]->get_secret_share()[i];
+    }
+    wire->set_setup_ready();
+    wire->set_online_ready();
   }
 }
 
@@ -470,6 +819,7 @@ void BooleanSWIFTSORTGate::evaluate_setup_with_context(MOTION::ExecutionContext&
     }
     w_o->set_setup_ready();
   }
+  this->set_setup_ready();
 }
 
 void BooleanSWIFTSORTGate::evaluate_online() {
@@ -635,6 +985,7 @@ void BooleanSWIFTSORTGate::evaluate_online() {
 
 void BooleanSWIFTSORTGate::evaluate_online_with_context(MOTION::ExecutionContext& exec_ctx) {
 
+  this->wait_setup();
   auto my_id = swift_provider_.get_my_id();
   auto num_simd = inputs_[0]->get_num_simd();
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
@@ -830,9 +1181,11 @@ void BooleanSWIFTXORGate::evaluate_setup() {
     }
     w_o->set_setup_ready();
   }
+  this->set_setup_ready();
 }
 
 void BooleanSWIFTXORGate::evaluate_online() {
+  this->wait_setup();
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
     const auto& w_a = inputs_a_[wire_i];
     const auto& w_b = inputs_b_[wire_i];
@@ -912,6 +1265,7 @@ void BooleanSWIFTANDGate::evaluate_setup() {
   for (auto& wire_o : outputs_) {
     wire_o->set_setup_ready();
   }
+  this->set_setup_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = swift_provider_.get_logger();
@@ -928,6 +1282,8 @@ void BooleanSWIFTANDGate::evaluate_online() {
       logger->LogTrace(fmt::format("Gate {}: BooleanSWIFTANDGate::evaluate_online start", gate_id_));
     }
   }
+
+  this->wait_setup();
 
   auto my_id = swift_provider_.get_my_id();
   auto num_simd = inputs_a_[0]->get_num_simd();
