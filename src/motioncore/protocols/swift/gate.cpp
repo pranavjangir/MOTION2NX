@@ -456,6 +456,175 @@ void BooleanSWIFTINVGate::evaluate_online() {
   }
 }
 
+template <typename T>
+BooleanSWIFTBitToArithmeticGate<T>::BooleanSWIFTBitToArithmeticGate(std::size_t gate_id,
+ SWIFTProvider& swift_provider, BooleanSWIFTWireVector&& in)
+:detail::BasicBooleanSWIFTUnaryGate(gate_id, std::move(in),
+                                         !swift_provider.is_my_job(gate_id)),
+                                          swift_provider_(swift_provider) {
+  auto my_id = swift_provider.get_my_id();
+  auto num_simd = in[0]->get_num_simd();
+  share_futures_.resize(3);
+  share_futures2_.resize(3);
+  if (my_id == 0) {
+    share_futures_ = swift_provider_.register_for_ints_messages<T>(this->gate_id, num_simd, 0);
+    share_futures2_ = swift_provider_.register_for_ints_messages<T>(this->gate_id, num_simd, 1);
+  } else if (my_id == 1) {
+    share_futures_[0] = swift_provider_.register_for_ints_message<T>(0, this->gate_id, num_simd, 0);
+    share_futures2_[0] = swift_provider_.register_for_ints_message<T>(0, this->gate_id, num_simd, 1);
+  }
+  if (in.size() != 1) {
+    throw std::logic_error("B2A works only for num_wires = 1");
+  }
+}
+
+template <typename T>
+void BooleanSWIFTBitToArithmeticGate<T>::evaluate_setup() {
+  // Prepare the lambda shares and all.
+  // prepare the offline shares.
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = this->inputs_[0]->get_num_simd();
+  this->output_->get_secret_share()[0] = {0, 0, 0};
+  this->output_->get_secret_share()[1] = {0, 0, 0};
+  this->output_->get_secret_share()[2] = {0, 0, 0};
+
+  std::array<std::array<std::vector<T>, 3>, 3> lambda;
+  std::array<std::vector<T>, 3> sigma;
+  sigma[0].resize(num_simd, 0); rss_sharing_mt_[0].resize(num_simd, 0);
+  sigma[1].resize(num_simd, 0); rss_sharing_mt_[1].resize(num_simd, 0);
+  sigma[2].resize(num_simd, 0); rss_sharing_mt_[2].resize(num_simd, 0);
+
+  for(int i = 0 ; i < num_simd; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      lambda[0][j].push_back(this->inputs_[0]->get_secret_share()[j].Get(i));
+      lambda[1][j].push_back(this->inputs_[0]->get_secret_share()[j].Get(i));
+      lambda[2][j].push_back(this->inputs_[0]->get_secret_share()[j].Get(i));
+    }
+  }
+  std::vector<T> my_share_value1(num_simd, 0);
+  // lambda0 and lambda1.
+  // TODO(pranav): All the random values are "0" currently.
+  // Add actual randomness.
+  if (my_id == 0) {
+    for (int i = 0 ; i < num_simd; ++i) {
+      my_share_value1[i] = lambda[0][0][i]*lambda[1][2][i] + lambda[1][0][i]*lambda[0][2][i]
+       + lambda[0][2][i]*lambda[1][2][i];
+    }
+    swift_provider_.send_ints_message(1, this->gate_id_, my_share_value1, 0);
+    auto p1_msg = share_futures_[1].get();
+    auto p2_msg = share_futures_[2].get();
+    for (int i = 0 ; i < num_simd; ++i) {
+      sigma[0][i] = (p2_msg[i]);
+      sigma[2][i] = (p1_msg[i] + my_share_value1[i]);
+    }
+  } else if (my_id == 1) {
+    for (int i = 0 ; i < num_simd; ++i) {
+      my_share_value1[i] = lambda[0][1][i]*lambda[1][2][i] + lambda[1][1][i]*lambda[0][2][i];
+    }
+    swift_provider_.send_ints_message(0, this->gate_id_, my_share_value1, 0);
+    auto p0_msg = share_futures_[0].get();
+    for (int i = 0 ; i < num_simd; ++i) {
+      sigma[2][i] = (p0_msg[i] + my_share_value1[i]);
+    }
+  } else {
+    for (int i = 0; i < 2; ++i) {
+      for (int j = 0; j < 2; ++j) {
+        for (std::size_t k = 0; k < num_simd; ++k) {
+          auto contrib = 
+          lambda[0][i][k] * lambda[1][j][k];
+          my_share_value1[k] += contrib;
+        }
+      }
+    }
+    // just share your own values.
+    swift_provider_.send_ints_message(0, this->gate_id_, my_share_value1, 0);
+    for (int i = 0 ; i < num_simd; ++i) {
+      sigma[2][i] = (my_share_value1[i]);
+    }
+  }
+
+  // sigma * lambda3 now.
+  std::vector<T> my_share_value2(num_simd, 0);
+  if (my_id == 0) {
+    for (int i = 0 ; i < num_simd; ++i) {
+      my_share_value2[i] = sigma[0][i]*lambda[2][2][i] + lambda[2][0][i]*sigma[2][i]
+       + sigma[2][i]*lambda[2][2][i];
+    }
+    swift_provider_.send_ints_message(1, this->gate_id_, my_share_value2, 0);
+    auto p1_msg = share_futures_[1].get();
+    auto p2_msg = share_futures_[2].get();
+    for (int i = 0 ; i < num_simd; ++i) {
+      rss_sharing_mt_[0][i] = (p2_msg[i]);
+      rss_sharing_mt_[2][i] = (p1_msg[i] + my_share_value2[i]);
+    }
+  } else if (my_id == 1) {
+    for (int i = 0 ; i < num_simd; ++i) {
+      my_share_value2[i] = sigma[1][i]*lambda[2][2][i] + lambda[2][1][i]*sigma[2][i];
+    }
+    swift_provider_.send_ints_message(0, this->gate_id_, my_share_value2, 0);
+    auto p0_msg = share_futures_[0].get();
+    for (int i = 0 ; i < num_simd; ++i) {
+      rss_sharing_mt_[2][i] = (p0_msg[i] + my_share_value2[i]);
+    }
+  } else {
+    for (int i = 0; i < 2; ++i) {
+      for (int j = 0; j < 2; ++j) {
+        for (std::size_t k = 0; k < num_simd; ++k) {
+          auto contrib = 
+          sigma[i][k] * lambda[2][j][k];
+          my_share_value2[k] += contrib;
+        }
+      }
+    }
+    // just share your own values.
+    swift_provider_.send_ints_message(0, this->gate_id_, my_share_value2, 0);
+    for (int i = 0 ; i < num_simd; ++i) {
+      rss_sharing_mt_[2][i] = (my_share_value2[i]);
+    }
+  }
+  // `rss_sharing_mt_` now contains the arithmetic shares of (lambda0 * lambda1 * lambda2).
+  this->output_->set_setup_ready();
+  this->set_setup_ready();
+}
+
+template <typename T>
+void BooleanSWIFTBitToArithmeticGate<T>::evaluate_online() {
+  this->wait_setup();
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = this->inputs_[0]->get_num_simd();
+
+  if (my_id == 2) {
+    this->output_->set_online_ready();
+    return;
+  }
+
+  std::vector<T> yy0(num_simd, 0);
+  std::vector<T> yy1(num_simd, 0);
+  std::vector<T> yy2(num_simd, 0);
+  for (int i = 0; i < num_simd; ++i) {
+    yy2[i] = rss_sharing_mt_[2][i]* (1 - 2*this->inputs_[0]->get_public_share().Get(i));
+  }
+  if (my_id == 0) {
+    for (int i = 0; i < num_simd; ++i) {
+      yy0[i] = rss_sharing_mt_[0][i]* (1 - 2*this->inputs_[0]->get_public_share().Get(i)) + 
+      this->inputs_[0]->get_public_share().Get(i);
+    }
+    swift_provider_.send_ints_message(1 - my_id, this->gate_id_, yy0, 1);
+    yy1 = share_futures2_[1 - my_id].get();
+  } else {
+    for (int i = 0; i < num_simd; ++i) {
+      yy1[i] = rss_sharing_mt_[1][i]* (1 - 2*this->inputs_[0]->get_public_share().Get(i));
+    }
+    swift_provider_.send_ints_message(1 - my_id, this->gate_id_, yy1, 1);
+    yy0 = share_futures2_[1 - my_id].get();
+  }
+
+  for (int i = 0; i < num_simd; ++i) {
+    this->output_->get_public_share()[i] = yy0[i] + yy1[i] + yy2[i];
+  }
+
+  this->output_->set_online_ready();
+}
 
 BooleanSWIFTSHUFFLEGate::BooleanSWIFTSHUFFLEGate(std::size_t gate_id, SWIFTProvider& swift_provider,
                                          BooleanSWIFTWireVector&& in)

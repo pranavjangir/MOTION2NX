@@ -167,6 +167,25 @@ class BooleanSWIFTINVGate : public detail::BasicBooleanSWIFTUnaryGate {
   bool is_my_job_;
 };
 
+template <typename T>
+class BooleanSWIFTBitToArithmeticGate : public detail::BasicBooleanToArithmeticSWIFTUnaryGate<T> {
+ public:
+  BooleanSWIFTBitToArithmeticGate(std::size_t gate_id, SWIFTProvider&, BooleanSWIFTWireVector&&);
+  bool need_setup() const noexcept override { return true; }
+  bool need_online() const noexcept override { return true; }
+  void evaluate_setup() override;
+  void evaluate_online() override;
+
+ private:
+  SWIFTProvider& swift_provider_;
+  std::vector<ENCRYPTO::ReusableFiberFuture<std::vector<T>>> share_futures_;
+  std::vector<ENCRYPTO::ReusableFiberFuture<std::vector<T>>> share_futures2_;
+  std::vector<ENCRYPTO::ReusableFiberFuture<std::vector<T>>> jsnd_future_;
+  std::vector<T> delta_ab1_;
+  std::vector<T> delta_ab2_;
+  std::array<std::vector<T>, 3> rss_sharing_mt_;
+};
+
 class BooleanSWIFTSORTGate : public detail::BasicBooleanSWIFTUnaryGate {
  public:
   BooleanSWIFTSORTGate(std::size_t gate_id, SWIFTProvider&, BooleanSWIFTWireVector&&);
