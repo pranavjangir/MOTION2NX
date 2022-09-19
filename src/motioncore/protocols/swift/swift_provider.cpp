@@ -369,8 +369,9 @@ std::vector<std::shared_ptr<NewWire>> SWIFTProvider::make_unary_gate(
       return make_sort_gate(in_a);
     case ENCRYPTO::PrimitiveOperationType::SHUFFLE:
     return make_shuffle_gate(in_a);
+    // TODO(pranav): Make this template generic.
     case ENCRYPTO::PrimitiveOperationType::BIT2A:
-    return make_bit2a_gate(in_a);
+    return make_bit2a_gate<std::uint64_t>(in_a);
     default:
       throw std::logic_error(
           fmt::format("SWIFT does not support the unary operation {}", ToString(op)));
@@ -450,16 +451,18 @@ WireVector SWIFTProvider::make_shuffle_gate(const WireVector& in_a) {
   return output;
 }
 
+template <typename T>
 std::pair<std::unique_ptr<NewGate>, WireVector> SWIFTProvider::construct_bit2a_gate(
     const WireVector& in_a) {
   auto gate_id = gate_register_.get_next_gate_id();
-  auto gate = std::make_unique<BooleanSWIFTBitToArithmeticGate>(gate_id, *this, cast_wires(in_a));
-  auto output = gate->get_output_wires();
-  return {std::move(gate), cast_wires(std::move(output))};
+  auto gate = std::make_unique<BooleanSWIFTBitToArithmeticGate<T>>(gate_id, *this, cast_wires(in_a));
+  auto output = {cast_arith_wire(gate->get_output_wire())};
+  return {std::move(gate), std::move(output)};
 }
 
+template <typename T>
 WireVector SWIFTProvider::make_bit2a_gate(const WireVector& in_a) {
-  auto [gate, output] = construct_bit2a_gate(in_a);
+  auto [gate, output] = construct_bit2a_gate<T>(in_a);
   gate_register_.register_gate(std::move(gate));
   return output;
 }
