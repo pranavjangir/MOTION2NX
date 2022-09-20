@@ -483,6 +483,7 @@ void ArithmeticToBooleanSWIFTGate<T>::evaluate_setup_with_context(MOTION::Execut
       output_[bit_pos]->get_secret_share() = addition_result_[bit_pos]->get_secret_share();
       output_[bit_pos]->set_setup_ready();
     }
+  this->set_setup_ready();
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = swift_provider_.get_logger();
@@ -577,6 +578,8 @@ void ArithmeticToBooleanSWIFTGate<T>::evaluate_online_with_context(MOTION::Execu
           fmt::format("Gate {}: ArithmeticToBooleanSWIFTGate<T>::evaluate_online start", gate_id_));
     }
   }
+
+  this->wait_setup();
 
   input_->wait_setup();
   input_->wait_online();
