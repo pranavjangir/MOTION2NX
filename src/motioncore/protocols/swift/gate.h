@@ -180,7 +180,7 @@ class BooleanSWIFTBitToArithmeticGate : public detail::BasicBooleanToArithmeticS
   SWIFTProvider& swift_provider_;
   std::vector<ENCRYPTO::ReusableFiberFuture<std::vector<T>>> share_futures_;
   std::vector<ENCRYPTO::ReusableFiberFuture<std::vector<T>>> share_futures2_;
-  std::vector<ENCRYPTO::ReusableFiberFuture<std::vector<T>>> jsnd_future_;
+  ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_futures_online_;
   std::vector<T> delta_ab1_;
   std::vector<T> delta_ab2_;
   std::array<std::vector<T>, 3> rss_sharing_mt_;

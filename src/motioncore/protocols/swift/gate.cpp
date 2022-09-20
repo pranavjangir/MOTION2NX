@@ -138,6 +138,11 @@ BasicBooleanToArithmeticSWIFTUnaryGate<T>::BasicBooleanToArithmeticSWIFTUnaryGat
   output_ = std::make_shared<ArithmeticSWIFTWire<T>>(num_simd);
 }
 
+template class BasicBooleanToArithmeticSWIFTUnaryGate<std::uint8_t>;
+template class BasicBooleanToArithmeticSWIFTUnaryGate<std::uint16_t>;
+template class BasicBooleanToArithmeticSWIFTUnaryGate<std::uint32_t>;
+template class BasicBooleanToArithmeticSWIFTUnaryGate<std::uint64_t>;
+
 }  // namespace detail
 
 BooleanSWIFTInputGateSender::BooleanSWIFTInputGateSender(
@@ -459,21 +464,23 @@ void BooleanSWIFTINVGate::evaluate_online() {
 template <typename T>
 BooleanSWIFTBitToArithmeticGate<T>::BooleanSWIFTBitToArithmeticGate(std::size_t gate_id,
  SWIFTProvider& swift_provider, BooleanSWIFTWireVector&& in)
-:detail::BasicBooleanSWIFTUnaryGate(gate_id, std::move(in),
+: detail::BasicBooleanToArithmeticSWIFTUnaryGate<T>(gate_id, std::move(in),
                                          !swift_provider.is_my_job(gate_id)),
                                           swift_provider_(swift_provider) {
   auto my_id = swift_provider.get_my_id();
-  auto num_simd = in[0]->get_num_simd();
+  auto num_simd = this->inputs_[0]->get_num_simd();
   share_futures_.resize(3);
   share_futures2_.resize(3);
   if (my_id == 0) {
-    share_futures_ = swift_provider_.register_for_ints_messages<T>(this->gate_id, num_simd, 0);
-    share_futures2_ = swift_provider_.register_for_ints_messages<T>(this->gate_id, num_simd, 1);
+    share_futures_ = swift_provider_.register_for_ints_messages<T>(this->gate_id_, num_simd, 0);
+    share_futures2_ = swift_provider_.register_for_ints_messages<T>(this->gate_id_, num_simd, 1);
+    share_futures_online_ = swift_provider_.register_for_ints_message<T>(1 - my_id, this->gate_id_, num_simd, 2);
   } else if (my_id == 1) {
-    share_futures_[0] = swift_provider_.register_for_ints_message<T>(0, this->gate_id, num_simd, 0);
-    share_futures2_[0] = swift_provider_.register_for_ints_message<T>(0, this->gate_id, num_simd, 1);
+    share_futures_[0] = swift_provider_.register_for_ints_message<T>(0, this->gate_id_, num_simd, 0);
+    share_futures2_[0] = swift_provider_.register_for_ints_message<T>(0, this->gate_id_, num_simd, 1);
+    share_futures_online_ = swift_provider_.register_for_ints_message<T>(1 - my_id, this->gate_id_, num_simd, 2);
   }
-  if (in.size() != 1) {
+  if (this->inputs_.size() != 1) {
     throw std::logic_error("B2A works only for num_wires = 1");
   }
 }
@@ -496,9 +503,21 @@ void BooleanSWIFTBitToArithmeticGate<T>::evaluate_setup() {
 
   for(int i = 0 ; i < num_simd; ++i) {
     for (int j = 0; j < 3; ++j) {
-      lambda[0][j].push_back(this->inputs_[0]->get_secret_share()[j].Get(i));
-      lambda[1][j].push_back(this->inputs_[0]->get_secret_share()[j].Get(i));
-      lambda[2][j].push_back(this->inputs_[0]->get_secret_share()[j].Get(i));
+      if (j == 0) {
+        lambda[0][j].push_back(this->inputs_[0]->get_secret_share()[0].Get(i));
+      } else {
+        lambda[0][j].push_back(0);
+      }
+      if (j == 1) {
+        lambda[1][j].push_back(this->inputs_[0]->get_secret_share()[1].Get(i));
+      } else {
+        lambda[1][j].push_back(0);
+      }
+      if (j == 2) {
+        lambda[2][j].push_back(this->inputs_[0]->get_secret_share()[2].Get(i));
+      } else {
+        lambda[2][j].push_back(0);
+      }
     }
   }
   std::vector<T> my_share_value1(num_simd, 0);
@@ -550,9 +569,9 @@ void BooleanSWIFTBitToArithmeticGate<T>::evaluate_setup() {
       my_share_value2[i] = sigma[0][i]*lambda[2][2][i] + lambda[2][0][i]*sigma[2][i]
        + sigma[2][i]*lambda[2][2][i];
     }
-    swift_provider_.send_ints_message(1, this->gate_id_, my_share_value2, 0);
-    auto p1_msg = share_futures_[1].get();
-    auto p2_msg = share_futures_[2].get();
+    swift_provider_.send_ints_message(1, this->gate_id_, my_share_value2, 1);
+    auto p1_msg = share_futures2_[1].get();
+    auto p2_msg = share_futures2_[2].get();
     for (int i = 0 ; i < num_simd; ++i) {
       rss_sharing_mt_[0][i] = (p2_msg[i]);
       rss_sharing_mt_[2][i] = (p1_msg[i] + my_share_value2[i]);
@@ -561,8 +580,8 @@ void BooleanSWIFTBitToArithmeticGate<T>::evaluate_setup() {
     for (int i = 0 ; i < num_simd; ++i) {
       my_share_value2[i] = sigma[1][i]*lambda[2][2][i] + lambda[2][1][i]*sigma[2][i];
     }
-    swift_provider_.send_ints_message(0, this->gate_id_, my_share_value2, 0);
-    auto p0_msg = share_futures_[0].get();
+    swift_provider_.send_ints_message(0, this->gate_id_, my_share_value2, 1);
+    auto p0_msg = share_futures2_[0].get();
     for (int i = 0 ; i < num_simd; ++i) {
       rss_sharing_mt_[2][i] = (p0_msg[i] + my_share_value2[i]);
     }
@@ -577,7 +596,7 @@ void BooleanSWIFTBitToArithmeticGate<T>::evaluate_setup() {
       }
     }
     // just share your own values.
-    swift_provider_.send_ints_message(0, this->gate_id_, my_share_value2, 0);
+    swift_provider_.send_ints_message(0, this->gate_id_, my_share_value2, 1);
     for (int i = 0 ; i < num_simd; ++i) {
       rss_sharing_mt_[2][i] = (my_share_value2[i]);
     }
@@ -609,14 +628,14 @@ void BooleanSWIFTBitToArithmeticGate<T>::evaluate_online() {
       yy0[i] = rss_sharing_mt_[0][i]* (1 - 2*this->inputs_[0]->get_public_share().Get(i)) + 
       this->inputs_[0]->get_public_share().Get(i);
     }
-    swift_provider_.send_ints_message(1 - my_id, this->gate_id_, yy0, 1);
-    yy1 = share_futures2_[1 - my_id].get();
+    swift_provider_.send_ints_message(1 - my_id, this->gate_id_, yy0, 2);
+    yy1 = share_futures_online_.get();
   } else {
     for (int i = 0; i < num_simd; ++i) {
       yy1[i] = rss_sharing_mt_[1][i]* (1 - 2*this->inputs_[0]->get_public_share().Get(i));
     }
-    swift_provider_.send_ints_message(1 - my_id, this->gate_id_, yy1, 1);
-    yy0 = share_futures2_[1 - my_id].get();
+    swift_provider_.send_ints_message(1 - my_id, this->gate_id_, yy1, 2);
+    yy0 = share_futures_online_.get();
   }
 
   for (int i = 0; i < num_simd; ++i) {
@@ -625,6 +644,11 @@ void BooleanSWIFTBitToArithmeticGate<T>::evaluate_online() {
 
   this->output_->set_online_ready();
 }
+
+template class BooleanSWIFTBitToArithmeticGate<std::uint8_t>;
+template class BooleanSWIFTBitToArithmeticGate<std::uint16_t>;
+template class BooleanSWIFTBitToArithmeticGate<std::uint32_t>;
+template class BooleanSWIFTBitToArithmeticGate<std::uint64_t>;
 
 BooleanSWIFTSHUFFLEGate::BooleanSWIFTSHUFFLEGate(std::size_t gate_id, SWIFTProvider& swift_provider,
                                          BooleanSWIFTWireVector&& in)

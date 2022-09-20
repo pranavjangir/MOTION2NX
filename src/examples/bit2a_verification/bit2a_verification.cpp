@@ -173,18 +173,21 @@ std::vector<uint64_t> convert_to_binary(uint64_t x) {
 
 auto make_boolean_share(std::vector<uint64_t> inputs) {
   BooleanSWIFTWireVector wires;
-  for (uint64_t j = 0; j < 64; ++j) {
+  for (uint64_t j = 0; j < 1; ++j) {
       auto wire = std::make_shared<BooleanSWIFTWire>(inputs.size());
       wires.push_back(std::move(wire));
   }
   // auto wire = std::make_shared<BooleanSWIFTWire>(inputs.size());
   for (uint64_t i = 0 ; i < inputs.size(); ++i) {
-      auto conv = convert_to_binary(inputs[i]);
-      for (uint64_t j = 0; j < 64; ++j) {
-          wires[j]->get_public_share().Set(conv[j], i);
-      }
+      //auto conv = convert_to_binary(inputs[i]);
+      //for (uint64_t j = 0; j < 64; ++j) {
+      wires[0]->get_public_share().Set((inputs[i]%2) , i);
+      wires[0]->get_secret_share()[0].Set(1 , i);
+      wires[0]->get_secret_share()[1].Set(0 , i);
+      wires[0]->get_secret_share()[2].Set(1 , i);
+      //}
   }
-  for (uint64_t j = 0; j < 64; ++j) {
+  for (uint64_t j = 0; j < 1; ++j) {
       wires[j]->set_setup_ready();
       wires[j]->set_online_ready();
   }
@@ -202,7 +205,7 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
 
   auto& arithmetic_tof = backend.get_gate_factory(arithmetic_protocol);
   auto& boolean_tof = backend.get_gate_factory(boolean_protocol);
-  std::vector<std::size_t> inps(10);
+  std::vector<std::size_t> inps(4);
   for (int i = 0; i < inps.size() ; ++i) {
     inps[i] = i;
   }
@@ -210,24 +213,30 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   std::cout << std::endl;
   auto xy = make_boolean_share(inps);
   auto bo = cast_wires(xy);
-  auto shuffle_op = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::SHUFFLE, bo);
+  auto arith_shares = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::BIT2A, bo);
 
-  auto fut = boolean_tof.make_boolean_output_gate_my(MOTION::ALL_PARTIES, shuffle_op);
+  // auto fut = boolean_tof.make_boolean_output_gate_my(MOTION::ALL_PARTIES, shuffle_op);
   
   backend.run();
-  auto shuffled_output = fut.get();
-  assert(shuffled_output.size() == 64);
-  std::vector<uint64_t> ans(inps.size(), 0);
-  assert(shuffled_output[0].GetSize() == inps.size());
+  // auto shuffled_output = fut.get();
+  // assert(shuffled_output.size() == 64);
+  // std::vector<uint64_t> ans(inps.size(), 0);
+  // assert(shuffled_output[0].GetSize() == inps.size());
 
-  for (int i = 0 ; i < inps.size(); ++i) {
-      ans[i] = 0;
-      for (uint64_t j = 0 ; j < 64 ; ++j) {
-          ans[i] += (1LL << j)*shuffled_output[j].Get(i);
-      }
-  }
-  for (auto i : ans) {
-      std::cout << i << " ---- ";
+  // for (int i = 0 ; i < inps.size(); ++i) {
+  //     ans[i] = 0;
+  //     for (uint64_t j = 0 ; j < 64 ; ++j) {
+  //         ans[i] += (1LL << j)*shuffled_output[j].Get(i);
+  //     }
+  // }
+  // for (auto i : ans) {
+  //     std::cout << i << " ---- ";
+  // }
+  assert(arith_shares.size() == 1);
+  arith_shares[0]->wait_online();
+  auto ans = std::dynamic_pointer_cast<ArithmeticSWIFTWire<std::uint64_t>>(arith_shares[0]);
+  for (auto x : ans->get_public_share()) {
+    std::cout << x << std::endl;
   }
 }
 
