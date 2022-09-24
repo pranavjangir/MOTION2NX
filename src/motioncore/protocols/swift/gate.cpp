@@ -1936,6 +1936,149 @@ template class BasicArithmeticSWIFTUnaryGate<std::uint64_t>;
 // template class ArithmeticSWIFTNEGGate<std::uint64_t>;
 
 template <typename T>
+ArithmeticSWIFTCompactionPrefixGate<T>::ArithmeticSWIFTCompactionPrefixGate(std::size_t gate_id,
+                                                  SWIFTProvider& swift_provider,
+                                                  ArithmeticSWIFTWireP<T>&& in)
+    : detail::BasicArithmeticSWIFTUnaryGate<T>(gate_id, swift_provider, std::move(in)),
+    swift_provider_(swift_provider) {
+  this->output_->get_public_share().resize(this->input_->get_num_simd(), 0);
+  this->output_->get_secret_share()[0].resize(this->input_->get_num_simd(), 0);
+  this->output_->get_secret_share()[1].resize(this->input_->get_num_simd(), 0);
+  this->output_->get_secret_share()[2].resize(this->input_->get_num_simd(), 0);
+  numZeroes_[0] = 0;
+  numZeroes_[1] = 0;
+  numZeroes_[2] = 0;
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = this->input_->get_num_simd();
+  prefixNumZeroes_[0].resize(num_simd, 0); prefixNumOnes_[0].resize(num_simd, 0);
+  prefixNumZeroes_[1].resize(num_simd, 0); prefixNumOnes_[1].resize(num_simd, 0);
+  prefixNumZeroes_[2].resize(num_simd, 0); prefixNumOnes_[2].resize(num_simd, 0);
+  prefixZeroesPub_.resize(num_simd, 0);
+  prefixOnesPub_.resize(num_simd, 0);
+  if (my_id != 2) {
+    share_future_ = swift_provider_.register_for_ints_message<T>(1-my_id, this->gate_id_, num_simd);
+    share_future_offline_ = swift_provider_.register_for_ints_message<T>(2, this->gate_id_, num_simd, 1);
+  }
+}
+
+template <typename T>
+void ArithmeticSWIFTCompactionPrefixGate<T>::evaluate_setup() {
+  this->input_->wait_setup();
+  // TODO(pranav): The output SS are all zeroes right now.
+  // Introduce real randomness here.
+  auto num_simd = this->input_->get_num_simd();
+  auto my_id = swift_provider_.get_my_id();
+  for (int i = 0; i < num_simd; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      numZeroes_[j] += -1*this->input_->get_secret_share()[j][i];
+      prefixNumOnes_[j][i] = (i == 0 ? this->input_->get_secret_share()[j][i] : 
+      this->input_->get_secret_share()[j][i] + prefixNumOnes_[j][i-1]);
+      prefixNumZeroes_[j][i] = -1*prefixNumOnes_[j][i];
+    }
+    // Remember to adjust prefixNumZeroes_[i] for all i in online phase.
+  }
+  // Remember to adjust numZeroes_ in online phase.
+
+  // Now the multiplication triples part for dot products.
+  if (my_id == 2) {
+    std::vector<T> for_online_parties(num_simd, 0);
+    for (int i = 0; i < num_simd; ++i) {
+      // [1-input, input] dot [numZeroi , totZero + numOnei]
+      // SS for 1 - input == -1*input
+      T ans = 0;
+      for (int j = 0; j < 2; ++j) {
+        for (int k = 0; k < 2; ++k) {
+          ans += (-1*this->input_->get_secret_share()[j][i]*prefixNumZeroes_[k][i]);
+          ans += (this->input_->get_secret_share()[j][i]*(numZeroes_[k] + prefixNumOnes_[k][i]));
+        }
+      }
+      for_online_parties[i] = ans;
+    }
+    swift_provider_.send_ints_message(0, this->gate_id_, for_online_parties, 1);
+    swift_provider_.send_ints_message(1, this->gate_id_, for_online_parties, 1);
+  } else {
+    offline_tags_ = share_future_offline_.get();
+  }
+  this->output_->set_setup_ready();
+  this->set_setup_ready();
+}
+
+
+template <typename T>
+void ArithmeticSWIFTCompactionPrefixGate<T>::evaluate_online() {
+  this->wait_setup();
+  this->input_->wait_online();
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = this->input_->get_num_simd();
+  if (my_id == 2) {
+    this->output_->set_online_ready();
+    return;
+  }
+
+  std::vector<T> for_other_party(num_simd, 0);
+  T totZeroPub = 0;
+  const auto& ips = this->input_->get_public_share();
+  for (int i = 0 ; i < num_simd; ++i) {
+    totZeroPub += 1 - ips[i];
+    prefixOnesPub_[i] = (i == 0 ? ips[i] : ips[i] + prefixOnesPub_[i-1]);
+    prefixZeroesPub_[i] = (i == 0 ? 1 - ips[i] : 1 - ips[i] + prefixZeroesPub_[i-1]);
+  }
+  auto& opshare = this->output_->get_public_share();
+  const auto& iss = this->input_->get_secret_share();
+  opshare = offline_tags_;
+  // [1-input, input] dot [numZeroi , totZero + numOnei]
+  for (std::size_t i = 0; i < num_simd; ++i) {
+    auto y1 = iss[0][i]*(prefixZeroesPub_[i]) - (1 - ips[i])*(prefixNumZeroes_[0][i]);
+    y1 += -1*iss[0][i]*(totZeroPub + prefixOnesPub_[i]) - ips[i]*(prefixNumOnes_[0][i] + numZeroes_[0]);
+
+    auto y2 = iss[1][i]*(prefixZeroesPub_[i]) - (1 - ips[i])*(prefixNumZeroes_[1][i]);
+    y2 += -1*iss[1][i]*(totZeroPub + prefixOnesPub_[i]) - ips[i]*(prefixNumOnes_[1][i] + numZeroes_[1]);
+
+    auto y3 = iss[2][i]*(prefixZeroesPub_[i]) - (1 - ips[i])*(prefixNumZeroes_[2][i]);
+    y3 += -1*iss[2][i]*(totZeroPub + prefixOnesPub_[i]) - ips[i]*(prefixNumOnes_[2][i] + numZeroes_[2]);
+
+    opshare[i] += y3 + (1 - ips[i])*(prefixZeroesPub_[i]) + (ips[i])*(totZeroPub + prefixOnesPub_[i]) + 
+    (-1*iss[2][i])*prefixNumZeroes_[2][i] + (iss[2][i])*(prefixNumOnes_[2][i] + numZeroes_[2]);
+    //a_pub_share[i]*b_pub_share[i];
+
+    // [1-input, input] dot [numZeroi , totZero + numOnei]
+    if (my_id == 0) {
+      for_other_party[i] = y1 +
+      //a_sec_share[0][i]*b_sec_share[2][i] +
+      (-1*iss[0][i])*prefixNumZeroes_[2][i] + (-1*iss[2][i])*prefixNumZeroes_[0][i] +
+      // a_sec_share[2][i]*b_sec_share[0][i];
+      (iss[0][i])*(prefixNumOnes_[2][i] + numZeroes_[2]) + (iss[2][i])*(prefixNumOnes_[0][i] + numZeroes_[0]);
+      // opshare[i] += a_sec_share[0][i]*b_sec_share[2][i] + a_sec_share[2][i]*b_sec_share[0][i] + a_sec_share[2][i]*b_sec_share[2][i] + 
+      // // op_sec_share[2][i] + y1;
+      // y1;
+      opshare[i] += for_other_party[i];
+    } else {
+      for_other_party[i] = y2 +
+      //a_sec_share[1][i]*b_sec_share[2][i] +
+      (-1 * iss[1][i])*prefixNumZeroes_[2][i] + (-1 * iss[2][i])*prefixNumZeroes_[1][i] + 
+      //a_sec_share[2][i]*b_sec_share[1][i];
+      (iss[1][i])*(prefixNumOnes_[2][i] + numZeroes_[2]) + (iss[2][i])*(prefixNumOnes_[1][i] + numZeroes_[1]);
+      // opshare[i] += a_sec_share[1][i]*b_sec_share[2][i] + a_sec_share[2][i]*b_sec_share[1][i] + a_sec_share[2][i]*b_sec_share[2][i] +
+      // // op_sec_share[2][i] + y2;
+      // y2;
+      opshare[i] += for_other_party[i];
+    }
+  }
+  swift_provider_.send_ints_message(1 - my_id, this->gate_id_, for_other_party, 0);
+  const auto other_party_share = share_future_.get();
+  for (int i = 0; i < num_simd; ++i) {
+    opshare[i] += other_party_share[i];
+  }
+  
+  this->output_->set_online_ready();
+}
+
+template class ArithmeticSWIFTCompactionPrefixGate<std::uint8_t>;
+template class ArithmeticSWIFTCompactionPrefixGate<std::uint16_t>;
+template class ArithmeticSWIFTCompactionPrefixGate<std::uint32_t>;
+template class ArithmeticSWIFTCompactionPrefixGate<std::uint64_t>;
+
+template <typename T>
 ArithmeticSWIFTADDGate<T>::ArithmeticSWIFTADDGate(std::size_t gate_id,
                                                   SWIFTProvider& swift_provider,
                                                   ArithmeticSWIFTWireP<T>&& in_a,

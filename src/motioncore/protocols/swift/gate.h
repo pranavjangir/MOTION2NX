@@ -389,6 +389,29 @@ class BasicArithmeticSWIFTUnaryGate : public NewGate {
 //   using is_enabled_ = ENCRYPTO::is_unsigned_int_t<T>;
 // };
 
+// This gate does the prefix sum that should be done before compaction.
+template <typename T>
+class ArithmeticSWIFTCompactionPrefixGate : public detail::BasicArithmeticSWIFTUnaryGate<T> {
+ public:
+  ArithmeticSWIFTCompactionPrefixGate(std::size_t gate_id, SWIFTProvider&, ArithmeticSWIFTWireP<T>&&);
+  bool need_setup() const noexcept override { return true; }
+  bool need_online() const noexcept override { return true; }
+  void evaluate_setup() override;
+  void evaluate_online() override;
+
+ private:
+  using is_enabled_ = ENCRYPTO::is_unsigned_int_t<T>;
+  SWIFTProvider& swift_provider_;
+  std::array<T, 3> numZeroes_;
+  std::array<std::vector<T>, 3> prefixNumZeroes_;
+  std::array<std::vector<T>, 3> prefixNumOnes_;
+  std::vector<T> prefixZeroesPub_;
+  std::vector<T> prefixOnesPub_;
+  ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_;
+  ENCRYPTO::ReusableFiberFuture<std::vector<T>> share_future_offline_;
+  std::vector<T> offline_tags_;
+};
+
 template <typename T>
 class ArithmeticSWIFTADDGate : public detail::BasicArithmeticSWIFTBinaryGate<T> {
  public:

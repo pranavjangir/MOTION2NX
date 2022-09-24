@@ -243,6 +243,7 @@ class SWIFTProvider : public GateFactory,
   WireVector make_arithmetic_binary_gate(const WireVector& in_a, const WireVector& in_b);
   // TODO(pranav): Implement this gate.
   // WireVector make_neg_gate(const WireVector& in_a);
+  WireVector make_compaction_gate(const WireVector& in);
   WireVector make_add_gate(const WireVector& in_a, const WireVector& in_b);
   WireVector make_mul_gate(const WireVector& in_a, const WireVector& in_b);
   WireVector make_sqr_gate(const WireVector& in_a);

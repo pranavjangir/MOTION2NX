@@ -15,6 +15,7 @@ add_subdirectory(private_heavy_hitters)
 add_subdirectory(swift_basic_verification)
 add_subdirectory(sorting_verification)
 add_subdirectory(shuffle_verification)
+add_subdirectory(compaction_verification)
 add_subdirectory(arith_to_bool_verification)
 
 if (MOTION_BUILD_ONNX_ADAPTER)

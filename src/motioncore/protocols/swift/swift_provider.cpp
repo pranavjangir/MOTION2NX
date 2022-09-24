@@ -372,6 +372,8 @@ std::vector<std::shared_ptr<NewWire>> SWIFTProvider::make_unary_gate(
     // TODO(pranav): Make this template generic.
     case ENCRYPTO::PrimitiveOperationType::BIT2A:
     return make_bit2a_gate<std::uint64_t>(in_a);
+    case ENCRYPTO::PrimitiveOperationType::COMPACT:
+    return make_compaction_gate(in_a);
     default:
       throw std::logic_error(
           fmt::format("SWIFT does not support the unary operation {}", ToString(op)));
@@ -657,6 +659,10 @@ WireVector SWIFTProvider::make_arithmetic_binary_gate(const WireVector& in_a,
 // WireVector SWIFTProvider::make_neg_gate(const WireVector& in) {
 //   return make_arithmetic_unary_gate<ArithmeticSWIFTNEGGate>(in);
 // }
+
+WireVector SWIFTProvider::make_compaction_gate(const WireVector& in) {
+  return make_arithmetic_unary_gate<ArithmeticSWIFTCompactionPrefixGate>(in);
+}
 
 WireVector SWIFTProvider::make_add_gate(const WireVector& in_a, const WireVector& in_b) {
   // assume, at most one of the inputs is a plain wire

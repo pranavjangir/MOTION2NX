@@ -1,0 +1,12 @@
+add_executable(compaction_verification compaction_verification.cpp)
+
+find_package(Boost COMPONENTS json log program_options REQUIRED)
+
+target_compile_features(compaction_verification PRIVATE cxx_std_20)
+
+target_link_libraries(compaction_verification
+    MOTION::motion
+    Boost::json
+    Boost::log
+    Boost::program_options
+)
