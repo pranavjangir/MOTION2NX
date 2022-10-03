@@ -248,7 +248,7 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend,
 
   std::vector<std::size_t> inps(num_clients);
   for (int i = 0; i < num_clients; ++i) {
-    inps[i] = (i%4);
+    inps[i] = i;
   }
   for (int i = 0; i < num_clients && i < 10; ++i) std::cout << inps[i] << "\n";
   auto bshares = make_boolean_share(inps);
