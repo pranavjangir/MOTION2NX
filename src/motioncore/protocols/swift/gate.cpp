@@ -1364,6 +1364,8 @@ void BooleanSWIFTSORTGate::evaluate_online_with_context(MOTION::ExecutionContext
   while(!unsorted_intervals_.empty()) {
     std::cout << "Sorting round : " << rounds << std::endl;
     rounds++;
+    std::cout << unsorted_intervals_.size() << "<-- number of unsorted intervals!\n";
+    for (auto it : unsorted_intervals_) std::cout << " :::::: " << it.second - it.first + 1 << "\n\n\n";
     ENCRYPTO::FiberThreadPool local_setup_pool(0);
     ENCRYPTO::FiberThreadPool local_online_pool(0);
     // Make a new gate!
