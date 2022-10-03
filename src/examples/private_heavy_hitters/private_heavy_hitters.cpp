@@ -214,6 +214,21 @@ auto make_boolean_share(std::vector<uint64_t> inputs) {
   return wires;
 }
 
+std::vector<std::size_t> approx_power_law_sampling(int num_clients) {
+  std::vector<std::size_t> output;
+  std::mt19937_64 rng(/*fixed_seed = */0);
+  for (int i = 1; i <= 1000; ++i) {
+    std::uint64_t element = rng();
+    for (int j = 1 ; j <= i; ++j) {
+      output.push_back(element);
+    }
+  }
+  std::shuffle(output.begin(), output.end(), rng);
+  assert(num_clients <= output.size());
+  std::vector<std::size_t> trimmed_output(output.begin(), output.begin() + num_clients);
+  return trimmed_output;
+}
+
 auto make_boolean_conversion(MOTION::proto::swift::ArithmeticSWIFTWireP<std::uint64_t> wire, 
 MOTION::GateFactory& bool_factory) {
     auto& swift_bool_factory = dynamic_cast<SWIFTProvider&>(bool_factory);
@@ -246,10 +261,10 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend,
   auto& boolean_tof = backend.get_gate_factory(boolean_protocol);
 
 
-  std::vector<std::size_t> inps(num_clients);
-  for (int i = 0; i < num_clients; ++i) {
-    inps[i] = i;
-  }
+  std::vector<std::size_t> inps = approx_power_law_sampling(num_clients);
+  // for (int i = 0; i < num_clients; ++i) {
+  //   inps[i] = (i%4);
+  // }
   for (int i = 0; i < num_clients && i < 10; ++i) std::cout << inps[i] << "\n";
   auto bshares = make_boolean_share(inps);
   auto casted_bshares = cast_wires(bshares);
@@ -353,8 +368,8 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend,
    MOTION::WireVector just_tgz(tagz_boolean_expanded.begin(),
    tagz_boolean_expanded.begin() + 64);
 
-  auto idx_fut = bool_factory.make_boolean_output_gate_my(MOTION::ALL_PARTIES, just_idx);
-  auto tgz_fut2 = bool_factory.make_boolean_output_gate_my(MOTION::ALL_PARTIES, just_tgz);
+  // auto idx_fut = bool_factory.make_boolean_output_gate_my(MOTION::ALL_PARTIES, just_idx);
+  // auto tgz_fut2 = bool_factory.make_boolean_output_gate_my(MOTION::ALL_PARTIES, just_tgz);
   for (int i = 0; i < num_clients; ++i) {
     int new_idx = ordering_arith[i];
     reordered_zero_one->get_public_share().Set(swiftcasted_zo->get_public_share().
@@ -387,7 +402,7 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend,
     reordered_idx[i]->set_setup_ready();
     reordered_idx[i]->set_online_ready();
   }
-      auto futzo = bool_factory.make_boolean_output_gate_my(MOTION::ALL_PARTIES, {reordered_zero_one});
+      // auto futzo = bool_factory.make_boolean_output_gate_my(MOTION::ALL_PARTIES, {reordered_zero_one});
       
   MOTION::WireVector zero_one;
   for (int i = 0 ; i < BIT_SIZE; ++i) {
@@ -396,25 +411,28 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend,
   auto inverse_zo = bool_factory.make_unary_gate(ENCRYPTO::PrimitiveOperationType::INV,
    zero_one);
   
-  std::vector<std::uint64_t> Nplus1(num_clients, num_clients + 1);
+  std::vector<std::uint64_t> Nplus1(num_clients, num_clients);
 
   auto nplus1_wire = make_boolean_share(Nplus1);
   auto casted_reordered_idx = cast_wires(reordered_idx);
-          auto futidx = bool_factory.make_boolean_output_gate_my(MOTION::ALL_PARTIES, casted_reordered_idx);
+          // auto futidx = bool_factory.make_boolean_output_gate_my(MOTION::ALL_PARTIES, casted_reordered_idx);
   auto casted_nplus1 = cast_wires(nplus1_wire);
   auto and1 = bool_factory.make_binary_gate(ENCRYPTO::PrimitiveOperationType::AND,
    inverse_zo, casted_reordered_idx);
 
   auto and2 = bool_factory.make_binary_gate(ENCRYPTO::PrimitiveOperationType::AND,
-   zero_one, casted_reordered_idx);
+   zero_one, casted_nplus1);
   
   auto final_selected_idx = bool_factory.make_binary_gate(ENCRYPTO::PrimitiveOperationType::XOR,
    and1, and2);
   assert(final_selected_idx.size() == BIT_SIZE);
 
+  // auto idx_sel = bool_factory.make_boolean_output_gate_my(MOTION::ALL_PARTIES, final_selected_idx);
+
   auto subtraction_result = bool_factory.make_unary_gate(ENCRYPTO::PrimitiveOperationType::ADJSUB,
    final_selected_idx);
   
+  // Find elements that occur more than 2 times ( >= 3).
   std::vector<std::uint64_t> tau(num_clients, 2-1);
 
   auto boolean_tau = make_boolean_share(tau);
@@ -429,14 +447,13 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend,
 
   // create an output gates of the result
   auto output_future = bool_factory.make_boolean_output_gate_my(MOTION::ALL_PARTIES, output);
-  // greater than gate. REMEMBER TO DO A TAU-1.
   // reveal the indexes. just the output gate!
   
 
   backend_post_compaction.run();
 
-  // auto xx = zofut.get();
-  // std::cout << "Unordered : " << xx[0].AsString() << std::endl;
+  auto xx = zofut.get();
+  std::cout << "Unordered : " << xx[0].AsString() << std::endl;
 
   // auto zoop = futzo.get();
 
@@ -481,10 +498,24 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend,
   //     std::cout << i << " ---- ";
   // }
 
+  // auto aaa = idx_sel.get();
+
+  // std::vector<uint64_t> yo(num_clients, 0);
+  // assert(aaa[0].GetSize() == num_clients);
+  // assert(aaa.size() == extra_wires);
+  // for (int i = 0 ; i < num_clients; ++i) {
+  //     yo[i] = 0;
+  //     for (uint64_t j = 0 ; j < aaa.size() ; ++j) {
+  //         yo[i] += (1LL << j)*aaa[j].Get(i);
+  //     }
+  //     std::cout << "iiiiiiiiiiiiiiiii " << yo[i] << std::endl;
+  // }
+
+
   auto phh_index = output_future.get();
   assert(phh_index.size() == 1);
 
-  // std::cout << phh_index[0].AsString() << std::endl;
+  std::cout << phh_index[0].AsString() << std::endl;
 
   comm_layer2->sync();
   comm_stats2.add(comm_layer2->get_transport_statistics());
