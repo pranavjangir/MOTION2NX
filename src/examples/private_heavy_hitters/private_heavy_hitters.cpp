@@ -484,7 +484,7 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend,
   auto phh_index = output_future.get();
   assert(phh_index.size() == 1);
 
-  std::cout << phh_index[0].AsString() << std::endl;
+  // std::cout << phh_index[0].AsString() << std::endl;
 
   comm_layer2->sync();
   comm_stats2.add(comm_layer2->get_transport_statistics());
