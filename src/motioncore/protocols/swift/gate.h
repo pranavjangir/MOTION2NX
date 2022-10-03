@@ -228,6 +228,48 @@ class BooleanSWIFTSHUFFLEGate : public detail::BasicBooleanSWIFTUnaryGate {
   std::vector<ENCRYPTO::BitVector<>> random_vectors_[3][3];
 };
 
+class BooleanSWIFTAdjacentCompGate : public detail::BasicBooleanSWIFTUnaryGate {
+ public:
+  BooleanSWIFTAdjacentCompGate(std::size_t gate_id, SWIFTProvider&, BooleanSWIFTWireVector&&);
+  bool need_setup() const noexcept override { return true; }
+  bool need_online() const noexcept override { return true; }
+  void evaluate_setup() override;
+  void evaluate_setup_with_context(ExecutionContext&) override;
+  void evaluate_online() override;
+  void evaluate_online_with_context(ExecutionContext&) override;
+
+  private:
+  SWIFTProvider& swift_provider_;
+  ENCRYPTO::AlgorithmDescription eq_circuit_;
+  MOTION::CircuitLoader circuit_loader_;
+  std::vector<std::unique_ptr<NewGate>> gates_;
+  BooleanSWIFTWireVector wires_a_;
+  BooleanSWIFTWireVector wires_b_;
+  swift::BooleanSWIFTWireVector eq_result_;
+
+};
+
+class BooleanSWIFTAdjacentSubtractionGate : public detail::BasicBooleanSWIFTUnaryGate {
+ public:
+  BooleanSWIFTAdjacentSubtractionGate(std::size_t gate_id, SWIFTProvider&, BooleanSWIFTWireVector&&);
+  bool need_setup() const noexcept override { return true; }
+  bool need_online() const noexcept override { return true; }
+  void evaluate_setup() override;
+  void evaluate_setup_with_context(ExecutionContext&) override;
+  void evaluate_online() override;
+  void evaluate_online_with_context(ExecutionContext&) override;
+
+  private:
+  SWIFTProvider& swift_provider_;
+  ENCRYPTO::AlgorithmDescription addition_circuit_;
+  MOTION::CircuitLoader circuit_loader_;
+  std::vector<std::unique_ptr<NewGate>> gates_;
+  BooleanSWIFTWireVector wires_a_;
+  BooleanSWIFTWireVector wires_b_;
+  swift::BooleanSWIFTWireVector addition_result_;
+
+};
+
 class BooleanSWIFTXORGate : public detail::BasicBooleanSWIFTBinaryGate {
  public:
   BooleanSWIFTXORGate(std::size_t gate_id, SWIFTProvider&, BooleanSWIFTWireVector&&,

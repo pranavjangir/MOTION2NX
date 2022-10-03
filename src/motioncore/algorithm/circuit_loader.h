@@ -44,6 +44,7 @@ class CircuitLoader {
   const ENCRYPTO::AlgorithmDescription& load_relu_circuit(std::size_t bit_size);
   const ENCRYPTO::AlgorithmDescription& load_gt_circuit(std::size_t bit_size,
                                                         bool depth_optimized = false);
+  const ENCRYPTO::AlgorithmDescription& load_eq_circuit(std::size_t bit_size);
   const ENCRYPTO::AlgorithmDescription& load_gtmux_circuit(std::size_t bit_size,
                                                            bool depth_optimized = false);
   const ENCRYPTO::AlgorithmDescription& load_tree_circuit(const std::string& algo_name,

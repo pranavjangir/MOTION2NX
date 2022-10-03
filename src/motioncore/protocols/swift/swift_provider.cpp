@@ -367,6 +367,10 @@ std::vector<std::shared_ptr<NewWire>> SWIFTProvider::make_unary_gate(
       return make_sqr_gate(in_a);
     case ENCRYPTO::PrimitiveOperationType::SORT:
       return make_sort_gate(in_a);
+    case ENCRYPTO::PrimitiveOperationType::ADJCOMP:
+    return make_adjcomp_gate(in_a);
+    case ENCRYPTO::PrimitiveOperationType::ADJSUB:
+    return make_adjsub_gate(in_a);
     case ENCRYPTO::PrimitiveOperationType::SHUFFLE:
     return make_shuffle_gate(in_a);
     // TODO(pranav): Make this template generic.
@@ -453,6 +457,34 @@ WireVector SWIFTProvider::make_shuffle_gate(const WireVector& in_a) {
   return output;
 }
 
+std::pair<std::unique_ptr<NewGate>, WireVector> SWIFTProvider::construct_adjcomp_gate(
+    const WireVector& in_a) {
+  auto gate_id = gate_register_.get_next_gate_id();
+  auto gate = std::make_unique<BooleanSWIFTAdjacentCompGate>(gate_id, *this, cast_wires(in_a));
+  auto output = gate->get_output_wires();
+  return {std::move(gate), cast_wires(std::move(output))};
+}
+
+WireVector SWIFTProvider::make_adjcomp_gate(const WireVector& in_a) {
+  auto [gate, output] = construct_adjcomp_gate(in_a);
+  gate_register_.register_gate(std::move(gate));
+  return output;
+}
+
+std::pair<std::unique_ptr<NewGate>, WireVector> SWIFTProvider::construct_adjsub_gate(
+    const WireVector& in_a) {
+  auto gate_id = gate_register_.get_next_gate_id();
+  auto gate = std::make_unique<BooleanSWIFTAdjacentSubtractionGate>(gate_id, *this, cast_wires(in_a));
+  auto output = gate->get_output_wires();
+  return {std::move(gate), cast_wires(std::move(output))};
+}
+
+WireVector SWIFTProvider::make_adjsub_gate(const WireVector& in_a) {
+  auto [gate, output] = construct_adjsub_gate(in_a);
+  gate_register_.register_gate(std::move(gate));
+  return output;
+}
+
 template <typename T>
 std::pair<std::unique_ptr<NewGate>, WireVector> SWIFTProvider::construct_bit2a_gate(
     const WireVector& in_a) {
@@ -492,13 +524,16 @@ WireVector SWIFTProvider::make_boolean_binary_gate(const WireVector& in_a, const
   gate_register_.register_gate(std::move(gate));
   return out;
 }
-
+// int cnt = 0;
 std::pair<NewGateP, WireVector> SWIFTProvider::construct_xor_gate(const WireVector& in_a,
                                                                   const WireVector& in_b) {
   // assume, at most one of the inputs is a plain wire
   if (in_a.at(0)->get_protocol() == MPCProtocol::BooleanPlain) {
     return construct_xor_gate(in_b, in_a);
   }
+  // cnt++;
+  // std::cout << cnt << " is the count of the xor gate.\n";
+  // std::cout << in_a[0] << " "  << in_b[0] << "\n\n";
   assert(in_a.at(0)->get_protocol() == MPCProtocol::BooleanSWIFT);
   if (in_b.at(0)->get_protocol() == MPCProtocol::BooleanPlain) {
     return construct_boolean_binary_gate<BooleanSWIFTXORPlainGate, true>(in_a, in_b);
@@ -506,13 +541,16 @@ std::pair<NewGateP, WireVector> SWIFTProvider::construct_xor_gate(const WireVect
     return construct_boolean_binary_gate<BooleanSWIFTXORGate>(in_a, in_b);
   }
 }
-
+// int cnt2 = 0;
 std::pair<NewGateP, WireVector> SWIFTProvider::construct_and_gate(const WireVector& in_a,
                                                                   const WireVector& in_b) {
   // assume, at most one of the inputs is a plain wire
   if (in_a.at(0)->get_protocol() == MPCProtocol::BooleanPlain) {
     return construct_xor_gate(in_b, in_a);
   }
+  // cnt2++;
+  // std::cout << cnt2 << " is the count of the and gate.\n";
+  // std::cout << in_a[0] << " "  << in_b[0] << "\n\n";
   assert(in_a.at(0)->get_protocol() == MPCProtocol::BooleanSWIFT);
   if (in_b.at(0)->get_protocol() == MPCProtocol::BooleanPlain) {
     return construct_boolean_binary_gate<BooleanSWIFTANDPlainGate, true>(in_a, in_b);

@@ -217,15 +217,15 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   assert(sorted_output.size() == 64);
   std::vector<uint64_t> ans(inps.size(), 0);
   assert(sorted_output[0].GetSize() == inps.size());
-  // for (int i = 0 ; i < inps.size(); ++i) {
-  //     ans[i] = 0;
-  //     for (uint64_t j = 0 ; j < 64 ; ++j) {
-  //         ans[i] += (1LL << j)*sorted_output[j].Get(i);
-  //     }
-  // }
-  // for (auto i : ans) {
-  //     std::cout << i << " ---- ";
-  // }
+  for (int i = 0 ; i < inps.size(); ++i) {
+      ans[i] = 0;
+      for (uint64_t j = 0 ; j < 64 ; ++j) {
+          ans[i] += (1LL << j)*sorted_output[j].Get(i);
+      }
+  }
+  for (auto i : ans) {
+      std::cout << i << " ---- ";
+  }
 }
 
 void print_stats(const Options& options,

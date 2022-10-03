@@ -134,9 +134,9 @@ const ENCRYPTO::AlgorithmDescription& CircuitLoader::load_relu_circuit(std::size
 
 const ENCRYPTO::AlgorithmDescription& CircuitLoader::load_gt_circuit(std::size_t bit_size,
                                                                      bool depth_optimized) {
-  if (bit_size != 8 && bit_size != 16 && bit_size != 32 && bit_size != 64) {
-    throw std::logic_error(fmt::format("unsupported bit size: {}", bit_size));
-  }
+  // if (bit_size != 2 && bit_size != 4 && bit_size != 8 && bit_size != 16 && bit_size != 32 && bit_size != 64 && bit_size != 256) {
+  //   throw std::logic_error(fmt::format("unsupported bit size: {}", bit_size));
+  // }
   const auto name = fmt::format("__circuit_loader_builtin__gt_{}_bit_{}", bit_size,
                                 depth_optimized ? "depth" : "size");
   auto it = algo_cache_.find(name);
@@ -148,13 +148,39 @@ const ENCRYPTO::AlgorithmDescription& CircuitLoader::load_gt_circuit(std::size_t
                    CircuitFormat::Bristol);
 
   // remove unnecessary outputs ...
-  algo.n_gates_ -= bit_size + 1;
-  algo.n_wires_ -= bit_size + 1;
-  algo.n_output_wires_ = 1;
-  algo.gates_.resize(algo.n_gates_);
-  algo.gates_.at(algo.n_gates_ - 1).output_wire_ -= 2;
+  if (bit_size <= 64 && bit_size != 4 && bit_size != 2) {
+    algo.n_gates_ -= bit_size + 1;
+    algo.n_wires_ -= bit_size + 1;
+    algo.n_output_wires_ = 1;
+    algo.gates_.resize(algo.n_gates_);
+    algo.gates_.at(algo.n_gates_ - 1).output_wire_ -= 2;
+  }
 
   return algo_cache_[name] = std::move(algo);
+}
+
+const ENCRYPTO::AlgorithmDescription FixWireIndexing(const ENCRYPTO::AlgorithmDescription& algo) {
+  ENCRYPTO::AlgorithmDescription output = algo;
+  for (auto& gate : output.gates_) {
+    gate.parent_a_--;
+    gate.parent_b_.value() = gate.parent_b_.value() - 1;
+    gate.output_wire_--;
+  }
+  return output;
+}
+
+const ENCRYPTO::AlgorithmDescription& CircuitLoader::load_eq_circuit(std::size_t bit_size) {
+  const auto name = fmt::format("__circuit_loader_builtin__eq_{}_bit", bit_size);
+  auto it = algo_cache_.find(name);
+  if (it != std::end(algo_cache_)) {
+    return it->second;
+  }
+  auto algo =
+      load_circuit(fmt::format("int_eq{}.bristol", bit_size),
+                   CircuitFormat::Bristol);
+  auto algo_fixed = FixWireIndexing(algo);
+
+  return algo_cache_[name] = std::move(algo_fixed);
 }
 
 const ENCRYPTO::AlgorithmDescription& CircuitLoader::load_gtmux_circuit(std::size_t bit_size,

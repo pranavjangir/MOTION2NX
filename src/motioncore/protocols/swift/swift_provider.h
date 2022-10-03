@@ -215,6 +215,8 @@ class SWIFTProvider : public GateFactory,
   WireVector make_inv_gate(const WireVector& in_a);
   WireVector make_sort_gate(const WireVector& in_a);
   WireVector make_shuffle_gate(const WireVector& in_a);
+  WireVector make_adjcomp_gate(const WireVector& in_a);
+  WireVector make_adjsub_gate(const WireVector& in_a);
   template <typename T>
   WireVector make_bit2a_gate(const WireVector& in_a);
   WireVector make_xor_gate(const WireVector& in_a, const WireVector& in_b);
@@ -225,6 +227,8 @@ class SWIFTProvider : public GateFactory,
   std::pair<NewGateP, WireVector> construct_inv_gate(const WireVector& in_a);
   std::pair<NewGateP, WireVector> construct_sort_gate(const WireVector& in_a);
   std::pair<NewGateP, WireVector> construct_shuffle_gate(const WireVector& in_a);
+  std::pair<NewGateP, WireVector> construct_adjcomp_gate(const WireVector& in_a);
+  std::pair<NewGateP, WireVector> construct_adjsub_gate(const WireVector& in_a);
   template <typename T>
   std::pair<NewGateP, WireVector> construct_bit2a_gate(const WireVector& in_a);
   std::pair<NewGateP, WireVector> construct_xor_gate(const WireVector& in_a,

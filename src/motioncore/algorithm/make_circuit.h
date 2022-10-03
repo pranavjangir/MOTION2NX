@@ -124,15 +124,27 @@ std::pair<std::vector<std::unique_ptr<NewGate>>, WireVector> construct_two_input
   std::vector<std::unique_ptr<NewGate>> gates;
   gates.reserve(algo.n_gates_);
   WireVector circuit_wires(algo.n_wires_);
+  int offset = 0;
+  std::size_t minm_gate = 1;
+  for (auto& prim_op : algo.gates_) {
+    minm_gate = std::min(minm_gate, prim_op.parent_a_);
+    if (prim_op.parent_b_.has_value()) {
+      minm_gate = std::min(minm_gate, *prim_op.parent_b_);
+    }
+  }
+  // std::cout << minm_gate << " is the minimum gate value!\n\n";
+  if (minm_gate != 0) {
+    offset = 1;
+  } 
   // load the input wires into vector
   std::copy(std::begin(wires_in_a), std::end(wires_in_a), std::begin(circuit_wires));
   // create all the gates gate
   for (const auto& prim_op : algo.gates_) {
     auto op_type = prim_op.type_;
-    const auto& gate_input_wire_a = circuit_wires.at(prim_op.parent_a_);
+    const auto& gate_input_wire_a = circuit_wires.at(prim_op.parent_a_ - offset);
     WireVector gate_output_wires;
     if (prim_op.parent_b_.has_value()) {
-      const auto& gate_input_wire_b = circuit_wires.at(*prim_op.parent_b_);
+      const auto& gate_input_wire_b = circuit_wires.at(*prim_op.parent_b_ - offset);
       auto ret = builder.construct_binary_gate(op_type, {gate_input_wire_a}, {gate_input_wire_b});
       gates.emplace_back(std::move(ret.first));
       gate_output_wires = std::move(ret.second);
@@ -141,7 +153,11 @@ std::pair<std::vector<std::unique_ptr<NewGate>>, WireVector> construct_two_input
       gates.emplace_back(std::move(ret.first));
       gate_output_wires = std::move(ret.second);
     }
-    circuit_wires.at(prim_op.output_wire_) = std::move(gate_output_wires.at(0));
+    // if (prim_op.output_wire_ == 1788) {
+    //   std::cout << "Now at the end gate!!\n";
+    //   std::cout << gate_output_wires.size() << " --- " << gate_output_wires[0] << std::endl;
+    // }
+    circuit_wires.at(prim_op.output_wire_ - offset) = std::move(gate_output_wires.at(0));
   }
   WireVector output_wires(std::end(circuit_wires) - algo.n_output_wires_, std::end(circuit_wires));
   return {std::move(gates), std::move(output_wires)};

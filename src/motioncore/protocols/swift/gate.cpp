@@ -58,6 +58,17 @@ static WireVector cast_wires(BooleanSWIFTWireVector wires) {
   return result;
 }
 
+static BooleanSWIFTWireVector cast_wires(std::vector<std::shared_ptr<NewWire>> wires) {
+  BooleanSWIFTWireVector result(wires.size());
+  std::transform(std::begin(wires), std::end(wires), std::begin(result),
+                 [](auto& w) { return std::dynamic_pointer_cast<BooleanSWIFTWire>(w); });
+  return result;
+}
+
+static NewWireP cast_boolean_wire(BooleanSWIFTWireP& wire) {
+  return std::shared_ptr<NewWire>(wire);
+}
+
 ENCRYPTO::BitVector<> permute_with_seed(const ENCRYPTO::BitVector<> bv, const std::size_t seed) {
   ENCRYPTO::BitVector<> op(bv.GetSize());
   std::mt19937 rng(seed);
@@ -489,6 +500,7 @@ template <typename T>
 void BooleanSWIFTBitToArithmeticGate<T>::evaluate_setup() {
   // Prepare the lambda shares and all.
   // prepare the offline shares.
+  this->inputs_[0]->wait_setup();
   auto my_id = swift_provider_.get_my_id();
   auto num_simd = this->inputs_[0]->get_num_simd();
   this->output_->get_secret_share()[0] = {0, 0, 0};
@@ -558,7 +570,13 @@ void BooleanSWIFTBitToArithmeticGate<T>::evaluate_setup() {
     // just share your own values.
     swift_provider_.send_ints_message(0, this->gate_id_, my_share_value1, 0);
     for (int i = 0 ; i < num_simd; ++i) {
-      sigma[2][i] = (my_share_value1[i]);
+      sigma[0][i] = (my_share_value1[i]);
+    }
+  }
+
+  for (int j = 0; j < 3; ++j) {
+    for (int i = 0 ; i < num_simd ; ++i) {
+      sigma[j][i] = lambda[0][j][i] + lambda[1][j][i] - 2*sigma[j][i];
     }
   }
 
@@ -598,7 +616,12 @@ void BooleanSWIFTBitToArithmeticGate<T>::evaluate_setup() {
     // just share your own values.
     swift_provider_.send_ints_message(0, this->gate_id_, my_share_value2, 1);
     for (int i = 0 ; i < num_simd; ++i) {
-      rss_sharing_mt_[2][i] = (my_share_value2[i]);
+      rss_sharing_mt_[0][i] = (my_share_value2[i]);
+    }
+  }
+  for (int j = 0; j < 3; ++j) {
+    for (int i = 0 ; i < num_simd ; ++i) {
+      rss_sharing_mt_[j][i] = sigma[j][i] + lambda[2][j][i] - 2*rss_sharing_mt_[j][i];
     }
   }
   // `rss_sharing_mt_` now contains the arithmetic shares of (lambda0 * lambda1 * lambda2).
@@ -609,6 +632,7 @@ void BooleanSWIFTBitToArithmeticGate<T>::evaluate_setup() {
 template <typename T>
 void BooleanSWIFTBitToArithmeticGate<T>::evaluate_online() {
   this->wait_setup();
+  this->inputs_[0]->wait_online();
   auto my_id = swift_provider_.get_my_id();
   auto num_simd = this->inputs_[0]->get_num_simd();
 
@@ -754,11 +778,15 @@ void BooleanSWIFTSHUFFLEGate::evaluate_online_with_context(MOTION::ExecutionCont
   // THERE IS NO SETUP PHASE HERE!!!!!
   // this->wait_setup();
   // Get RSS sharing.
-  BooleanSWIFTWireVector rss_shares = inputs_;
+  BooleanSWIFTWireVector rss_shares;
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
     const auto& w_in = inputs_[wire_i];
     w_in->wait_setup();
     w_in->wait_online();
+    auto new_wire = std::make_shared<BooleanSWIFTWire>(inputs_[wire_i]->get_num_simd());
+    new_wire->get_public_share() = w_in->get_public_share();
+    new_wire->get_secret_share() = w_in->get_secret_share();
+    rss_shares.push_back(std::move(new_wire));
   }
   for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
     auto& wire = rss_shares[wire_i];
@@ -964,6 +992,153 @@ void BooleanSWIFTSHUFFLEGate::evaluate_online_with_context(MOTION::ExecutionCont
   }
 }
 
+BooleanSWIFTAdjacentCompGate::BooleanSWIFTAdjacentCompGate(std::size_t gate_id,
+                                                              SWIFTProvider& swift_provider,
+                                                              BooleanSWIFTWireVector&& in)
+    : detail::BasicBooleanSWIFTUnaryGate(gate_id, std::move(in),
+                                         !swift_provider.is_my_job(gate_id)),
+                                         swift_provider_(swift_provider) {
+  const auto num_simd = this->inputs_[0]->get_num_simd();
+  const auto my_id = swift_provider_.get_my_id();
+  auto& eq_circuit_ =
+      swift_provider_.get_circuit_loader().load_eq_circuit(num_wires_);
+  this->outputs_.clear();
+  this->outputs_.reserve(1);
+    std::generate_n(std::back_inserter(this->outputs_), 1,
+                    [num_simd] { return std::make_shared<BooleanSWIFTWire>(num_simd); });
+  // apply the circuit to the Boolean shares.
+  WireVector A(num_wires_);
+  WireVector B(num_wires_);
+  for (std::size_t bit_pos = 0; bit_pos < num_wires_; ++bit_pos) {
+    auto wirea = std::make_shared<BooleanSWIFTWire>(num_simd - 1);
+    auto wireb = std::make_shared<BooleanSWIFTWire>(num_simd - 1);
+    wireb->get_public_share().Set(1);
+    wireb->set_online_ready();
+    wireb->set_setup_ready();
+    A[bit_pos] = cast_boolean_wire(wirea);
+    B[bit_pos] = cast_boolean_wire(wireb);
+    wires_a_.push_back(wirea);
+    wires_b_.push_back(wireb);
+  }
+  A.insert(
+      A.end(),
+      std::make_move_iterator(B.begin()),
+      std::make_move_iterator(B.end())
+    );
+  auto [gates, output_wires] = construct_two_input_circuit(swift_provider_, eq_circuit_, A);
+  // TODO(pranav): Check this step's correctness.
+  gates_ = std::move(gates);
+  eq_result_ = cast_wires(output_wires);
+  // eq_result is just going to output the comparision result.
+  assert(eq_result_.size() == 1);
+  assert(this->outputs_.size() == 1);
+}
+
+void BooleanSWIFTAdjacentCompGate::evaluate_setup() {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: BooleanSWIFTAdjacentCompGate<T>::evaluate_setup start", gate_id_));
+    }
+  }
+  throw std::logic_error("Not yet implemented!");
+
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: BooleanSWIFTAdjacentCompGate<T>::evaluate_setup end", gate_id_));
+    }
+  }
+}
+
+void BooleanSWIFTAdjacentCompGate::evaluate_setup_with_context(ExecutionContext& exec_ctx) {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: BooleanSWIFTAdjacentCompGate<T>::evaluate_setup_with_context start", gate_id_));
+    }
+  }
+  auto num_simd = this->inputs_[0]->get_num_simd();
+  for (int wire_i = 0; wire_i < num_wires_; ++wire_i) {
+    this->inputs_[wire_i]->wait_setup();
+    const auto& ss = this->inputs_[wire_i]->get_secret_share();
+    for (int i = 0 ; i < num_simd-1; ++i) {
+      for (int j = 0; j < 3; ++j) {
+        wires_a_[wire_i]->get_secret_share()[j].Set(ss[j].Get(i) ^ ss[j].Get(i + 1), i);
+        // wires_b_[wire_i]->get_secret_share()[j].Set(ss[j].Get(i + 1), i);
+      }
+    }
+    wires_a_[wire_i]->set_setup_ready();
+    // wires_b_[wire_i]->set_setup_ready();
+  }
+  for (auto& gate : gates_) {
+    exec_ctx.fpool_->post([&] { gate->evaluate_setup(); });
+  }
+
+  for (std::size_t bit_pos = 0; bit_pos < 1; ++bit_pos) {
+      eq_result_[bit_pos]->wait_setup();
+      // Copy the wire vector values to the output.
+      auto& ss = this->outputs_[bit_pos]->get_secret_share();
+      // Set the secret share values.
+      for (int j = 0; j < 3; ++j) {
+        ss[j].Set(0, 0);
+        for (int i = 1; i < num_simd; ++i) {
+          ss[j].Set(eq_result_[bit_pos]->get_secret_share()[j].Get(i - 1), i);
+        }
+      }
+      this->outputs_[bit_pos]->set_setup_ready();
+    }
+
+  this->set_setup_ready();
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: BooleanSWIFTAdjacentCompGate<T>::evaluate_setup_with_context end", gate_id_));
+    }
+  }
+}
+
+void BooleanSWIFTAdjacentCompGate::evaluate_online() {
+    this->wait_setup();
+  throw std::logic_error("Not yet implemented");
+}
+
+void BooleanSWIFTAdjacentCompGate::evaluate_online_with_context(ExecutionContext& exec_ctx) {
+  this->wait_setup();
+
+  auto num_simd = this->inputs_[0]->get_num_simd();
+  for (int wire_i = 0; wire_i < num_wires_; ++wire_i) {
+    this->inputs_[wire_i]->wait_online();
+    const auto& ps = this->inputs_[wire_i]->get_public_share();
+    for (int i = 0 ; i < num_simd-1; ++i) {
+        wires_a_[wire_i]->get_public_share().Set(1 ^ ps.Get(i) ^ ps.Get(i + 1), i);
+        // wires_b_[wire_i]->get_public_share().Set(ps.Get(i + 1), i);
+    }
+    wires_a_[wire_i]->set_online_ready();
+    // wires_b_[wire_i]->set_online_ready();
+  }
+
+  for (auto& gate : gates_) {
+    exec_ctx.fpool_->post([&] { gate->evaluate_online(); });
+  }
+
+  for (std::size_t bit_pos = 0; bit_pos < 1; ++bit_pos) {
+      eq_result_[bit_pos]->wait_online();
+      // Copy the wire vector values to the output.
+      auto& ps = this->outputs_[bit_pos]->get_public_share();
+      // Set the secret share values.
+        ps.Set(0, 0);
+        for (int i = 1; i < num_simd; ++i) {
+          ps.Set(eq_result_[bit_pos]->get_public_share().Get(i - 1), i);
+        }
+      this->outputs_[bit_pos]->set_online_ready();
+    }
+}
+
 BooleanSWIFTSORTGate::BooleanSWIFTSORTGate(std::size_t gate_id, SWIFTProvider& swift_provider,
                                          BooleanSWIFTWireVector&& in)
     : detail::BasicBooleanSWIFTUnaryGate(gate_id, std::move(in),
@@ -973,7 +1148,7 @@ BooleanSWIFTSORTGate::BooleanSWIFTSORTGate(std::size_t gate_id, SWIFTProvider& s
   auto my_id = swift_provider_.get_my_id();
   auto num_simd = inputs_[0]->get_num_simd();
   gt_circuit_ =
-        circuit_loader_.load_gt_circuit(64, /*depth_optimized=*/true);
+        circuit_loader_.load_gt_circuit(num_wires_, /*depth_optimized=*/true);
   permutation_.resize(num_simd);
   for (std::size_t i = 0; i < num_simd ; ++i) {
     // Set initial permutation as the identity permutation.
@@ -1250,11 +1425,20 @@ void BooleanSWIFTSORTGate::evaluate_online_with_context(MOTION::ExecutionContext
     }
       WireVector AA = cast_wires(A);
       WireVector BB = cast_wires(B);
-      AA.insert(
-        AA.end(),
-        std::make_move_iterator(BB.begin()),
-        std::make_move_iterator(BB.end())
-      );
+      if (num_wires_ <= 64) {
+        AA.insert(
+          AA.end(),
+          std::make_move_iterator(BB.begin()),
+          std::make_move_iterator(BB.end())
+        );
+      } else {
+        BB.insert(
+          BB.end(),
+          std::make_move_iterator(AA.begin()),
+          std::make_move_iterator(AA.end())
+        );
+        AA = BB;
+      }
       
       auto [gates, output_wires] = construct_two_input_circuit(swift_provider_, gt_circuit_, AA);
       gates_.push_back(std::move(gates));
@@ -1356,6 +1540,141 @@ void BooleanSWIFTSORTGate::evaluate_online_with_context(MOTION::ExecutionContext
   
 }
 
+BooleanSWIFTAdjacentSubtractionGate::BooleanSWIFTAdjacentSubtractionGate(std::size_t gate_id,
+                                                              SWIFTProvider& swift_provider,
+                                                              BooleanSWIFTWireVector&& in)
+    : detail::BasicBooleanSWIFTUnaryGate(gate_id, std::move(in),
+                                         !swift_provider.is_my_job(gate_id)),
+                                         swift_provider_(swift_provider) {
+  const auto num_simd = this->inputs_[0]->get_num_simd();
+  const auto my_id = swift_provider_.get_my_id();
+  addition_circuit_ = 
+  swift_provider_.get_circuit_loader().load_circuit(fmt::format("int_add{}_depth.bristol", num_wires_),
+          CircuitFormat::Bristol);
+  // apply the circuit to the Boolean shares.
+  WireVector A(num_wires_);
+  WireVector B(num_wires_);
+  for (std::size_t bit_pos = 0; bit_pos < num_wires_; ++bit_pos) {
+    auto wirea = std::make_shared<BooleanSWIFTWire>(num_simd);
+    auto wireb = std::make_shared<BooleanSWIFTWire>(num_simd);
+    A[bit_pos] = cast_boolean_wire(wirea);
+    B[bit_pos] = cast_boolean_wire(wireb);
+    wires_a_.push_back(wirea);
+    wires_b_.push_back(wireb);
+  }
+  A.insert(
+      A.end(),
+      std::make_move_iterator(B.begin()),
+      std::make_move_iterator(B.end())
+    );
+  auto [gates, output_wires] = construct_two_input_circuit(swift_provider_, addition_circuit_, A);
+  gates_ = std::move(gates);
+  addition_result_ = cast_wires(output_wires);
+  assert(addition_result_.size() == num_wires_);
+}
+
+void BooleanSWIFTAdjacentSubtractionGate::evaluate_setup() {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: BooleanSWIFTAdjacentSubtractionGate<T>::evaluate_setup start", gate_id_));
+    }
+  }
+  throw std::logic_error("Not yet implemented!");
+
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: BooleanSWIFTAdjacentSubtractionGate<T>::evaluate_setup end", gate_id_));
+    }
+  }
+}
+
+void BooleanSWIFTAdjacentSubtractionGate::evaluate_setup_with_context(ExecutionContext& exec_ctx) {
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: BooleanSWIFTAdjacentSubtractionGate<T>::evaluate_setup_with_context start", gate_id_));
+    }
+  }
+  auto num_simd = this->inputs_[0]->get_num_simd();
+  for (int wire_i = 0; wire_i < num_wires_; ++wire_i) {
+    this->inputs_[wire_i]->wait_setup();
+    const auto& ss = this->inputs_[wire_i]->get_secret_share();
+    for (int i = 0 ; i < num_simd-1; ++i) {
+      for (int j = 0; j < 3; ++j) {
+        wires_a_[wire_i]->get_secret_share()[j].Set(ss[j].Get(i+1), i);
+        wires_b_[wire_i]->get_secret_share()[j].Set(ss[j].Get(i), i);
+      }
+    }
+    for (int j = 0; j < 3; ++j) {
+      // wires_a_[wire_i]->get_secret_share()[j].Set(ss[j].Get(i+1), i);
+      wires_b_[wire_i]->get_secret_share()[j].Set(ss[j].Get(num_simd-1), num_simd-1);
+    }
+    wires_a_[wire_i]->set_setup_ready();
+    wires_b_[wire_i]->set_setup_ready();
+  }
+  for (auto& gate : gates_) {
+    exec_ctx.fpool_->post([&] { gate->evaluate_setup(); });
+  }
+
+  for (std::size_t bit_pos = 0; bit_pos < num_wires_; ++bit_pos) {
+      addition_result_[bit_pos]->wait_setup();
+      // Copy the wire vector values to the output.
+      auto& ss = this->outputs_[bit_pos]->get_secret_share();
+      // Set the secret share values.
+      ss = addition_result_[bit_pos]->get_secret_share();
+      this->outputs_[bit_pos]->set_setup_ready();
+    }
+
+  this->set_setup_ready();
+  if constexpr (MOTION_VERBOSE_DEBUG) {
+    auto logger = swift_provider_.get_logger();
+    if (logger) {
+      logger->LogTrace(
+          fmt::format("Gate {}: BooleanSWIFTAdjacentSubtractionGate<T>::evaluate_setup_with_context end", gate_id_));
+    }
+  }
+}
+
+void BooleanSWIFTAdjacentSubtractionGate::evaluate_online() {
+    this->wait_setup();
+  throw std::logic_error("Not yet implemented");
+}
+
+void BooleanSWIFTAdjacentSubtractionGate::evaluate_online_with_context(ExecutionContext& exec_ctx) {
+  this->wait_setup();
+
+  auto num_simd = this->inputs_[0]->get_num_simd();
+  for (int wire_i = 0; wire_i < num_wires_; ++wire_i) {
+    this->inputs_[wire_i]->wait_online();
+    const auto& ps = this->inputs_[wire_i]->get_public_share();
+    for (int i = 0 ; i < num_simd-1; ++i) {
+        wires_a_[wire_i]->get_public_share().Set(ps.Get(i + 1), i);
+        // Inverse!
+        wires_b_[wire_i]->get_public_share().Set(1 ^ ps.Get(i), i);
+    }
+    wires_a_[wire_i]->set_online_ready();
+    wires_b_[wire_i]->set_online_ready();
+  }
+
+  for (auto& gate : gates_) {
+    exec_ctx.fpool_->post([&] { gate->evaluate_online(); });
+  }
+
+  for (std::size_t bit_pos = 0; bit_pos < num_wires_; ++bit_pos) {
+      addition_result_[bit_pos]->wait_online();
+      // Copy the wire vector values to the output.
+      auto& ps = this->outputs_[bit_pos]->get_public_share();
+      // Set the public share values.
+      ps = addition_result_[bit_pos]->get_public_share();
+      this->outputs_[bit_pos]->set_online_ready();
+    }
+}
+
 BooleanSWIFTXORGate::BooleanSWIFTXORGate(std::size_t gate_id, SWIFTProvider&,
                                          BooleanSWIFTWireVector&& in_a,
                                          BooleanSWIFTWireVector&& in_b)
@@ -1424,6 +1743,7 @@ void BooleanSWIFTANDGate::evaluate_setup() {
     for (int share_id = 0; share_id < 3; ++share_id) {
       int modd = (share_id  % 2);
       wire_o->get_secret_share()[share_id] = ENCRYPTO::BitVector<>(wire_o->get_num_simd(), modd);
+      // std::cout << ">>>>>>>>>>>>>>>>>> share id : " << share_id <<" -- "<< wire_o->get_secret_share()[share_id].AsString() << std::endl;
     }
     // wire_o->set_setup_ready();
   }
@@ -1481,6 +1801,16 @@ void BooleanSWIFTANDGate::evaluate_online() {
   auto my_id = swift_provider_.get_my_id();
   auto num_simd = inputs_a_[0]->get_num_simd();
   auto num_bits = num_wires_ * num_simd;
+
+  // std::cout << this->gate_id_ << " <-- Gate id --> " << this->inputs_a_[0]->get_public_share().AsString() 
+  // << " -- " << this->inputs_a_[0]->get_secret_share()[0].AsString()
+  // << " -- " << this->inputs_a_[0]->get_secret_share()[1].AsString()
+  // << " -- " << this->inputs_a_[0]->get_secret_share()[2].AsString() << "#######################\n";
+
+  // std::cout << this->gate_id_ << " <-- Gate id --> " << this->inputs_b_[0]->get_public_share().AsString() 
+  // << " -- " << this->inputs_b_[0]->get_secret_share()[0].AsString()
+  // << " -- " << this->inputs_b_[0]->get_secret_share()[1].AsString()
+  // << " -- " << this->inputs_b_[0]->get_secret_share()[2].AsString() << "#######################\n\n";
 
   if (my_id == 2) {
     for (std::size_t wire_i = 0; wire_i < num_wires_; ++wire_i) {
@@ -1550,6 +1880,11 @@ void BooleanSWIFTANDGate::evaluate_online() {
     }
     this->outputs_[wire_i]->set_online_ready();
   }
+  // std::cout << "*********************\n";
+  // for (int i = 0; i < num_wires_; ++i) {
+  //   std::cout << this->outputs_[i]->get_public_share().AsString() << std::endl;
+  // }
+  // std::cout << "*********************\n\n";
 
   if constexpr (MOTION_VERBOSE_DEBUG) {
     auto logger = swift_provider_.get_logger();
