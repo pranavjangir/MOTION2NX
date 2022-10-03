@@ -432,8 +432,8 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend,
   auto subtraction_result = bool_factory.make_unary_gate(ENCRYPTO::PrimitiveOperationType::ADJSUB,
    final_selected_idx);
   
-  // Find elements that occur more than 2 times ( >= 3).
-  std::vector<std::uint64_t> tau(num_clients, 2-1);
+  // Find elements that occur more than 100 times ( >= 101).
+  std::vector<std::uint64_t> tau(num_clients, 100-1);
 
   auto boolean_tau = make_boolean_share(tau);
   auto casted_tau = cast_wires(boolean_tau);
