@@ -161,9 +161,11 @@ std::unique_ptr<MOTION::Communication::CommunicationLayer> setup_communication(
                                                                      helper.setup_connections());
 }
 
+const int BIT_SIZE = 256;
+
 std::vector<uint64_t> convert_to_binary(uint64_t x) {
     std::vector<uint64_t> res;
-    for (uint64_t i = 0; i < 64; ++i) {
+    for (uint64_t i = 0; i < BIT_SIZE; ++i) {
         if (x%2 == 1) res.push_back(1);
         else res.push_back(0);
         x /= 2;
@@ -173,18 +175,18 @@ std::vector<uint64_t> convert_to_binary(uint64_t x) {
 
 auto make_boolean_share(std::vector<uint64_t> inputs) {
   BooleanSWIFTWireVector wires;
-  for (uint64_t j = 0; j < 64; ++j) {
+  for (uint64_t j = 0; j < BIT_SIZE; ++j) {
       auto wire = std::make_shared<BooleanSWIFTWire>(inputs.size());
       wires.push_back(std::move(wire));
   }
   // auto wire = std::make_shared<BooleanSWIFTWire>(inputs.size());
   for (uint64_t i = 0 ; i < inputs.size(); ++i) {
       auto conv = convert_to_binary(inputs[i]);
-      for (uint64_t j = 0; j < 64; ++j) {
+      for (uint64_t j = 0; j < BIT_SIZE; ++j) {
           wires[j]->get_public_share().Set(conv[j], i);
       }
   }
-  for (uint64_t j = 0; j < 64; ++j) {
+  for (uint64_t j = 0; j < BIT_SIZE; ++j) {
       wires[j]->set_setup_ready();
       wires[j]->set_online_ready();
   }
@@ -206,6 +208,9 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   for (int i = 0; i < inps.size() ; ++i) {
     inps[i] = (i*i*i)%3456;
   }
+  std::mt19937_64 rng(/*fixed_seed = */1);
+  std::shuffle(inps.begin(), inps.end(), rng);
+  for (auto x : inps) std::cout << x << "\n";
   auto xy = make_boolean_share(inps);
   auto bo = cast_wires(xy);
   auto sort_op = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::SORT, bo);
@@ -214,12 +219,12 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   
   backend.run();
   auto sorted_output = fut.get();
-  assert(sorted_output.size() == 64);
+  assert(sorted_output.size() == BIT_SIZE);
   std::vector<uint64_t> ans(inps.size(), 0);
   assert(sorted_output[0].GetSize() == inps.size());
   for (int i = 0 ; i < inps.size(); ++i) {
       ans[i] = 0;
-      for (uint64_t j = 0 ; j < 64 ; ++j) {
+      for (uint64_t j = 0 ; j < BIT_SIZE ; ++j) {
           ans[i] += (1LL << j)*sorted_output[j].Get(i);
       }
   }

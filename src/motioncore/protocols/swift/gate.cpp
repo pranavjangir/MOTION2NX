@@ -1401,9 +1401,15 @@ void BooleanSWIFTSORTGate::evaluate_online_with_context(MOTION::ExecutionContext
           Get(permutation_[i]), cur_idx);
           A[j]->get_secret_share()[2].Set(ia->get_secret_share()[2].
           Get(permutation_[i]), cur_idx);
-
-          A[j]->get_public_share().Set(ia->get_public_share().
-          Get(permutation_[i]), cur_idx);
+          if (num_wires_ <= 64) {
+            A[j]->get_public_share().Set(ia->get_public_share().
+            Get(permutation_[i]), cur_idx);
+          } else {
+            // Inverse the value to be stored in this wire.
+            // > 64 bit circuits use B-A 's MSB to determine greater than.
+            A[j]->get_public_share().Set(ia->get_public_share().
+            Get(permutation_[i]) ^ 1, cur_idx);
+          }
 
           //////////////
 
@@ -1420,6 +1426,24 @@ void BooleanSWIFTSORTGate::evaluate_online_with_context(MOTION::ExecutionContext
           Get(permutation_[pivot_idx]), cur_idx);
         }
         ++cur_idx;
+      }
+    }
+    // Do +1 to the public value of A.
+    // This is done as -A = Inv(A) + 1.
+    if (num_wires_ > 64) {
+      int tot_values = A[0]->get_num_simd();
+      std::vector<int> carry(tot_values, 0);
+      for (int v = 0; v < tot_values; ++v) {
+        int sum = 1 + (int)A[0]->get_public_share().Get(v);
+        carry[v] = (sum / 2);
+        A[0]->get_public_share().Set((sum%2), v);
+      }
+      for (int bit_pos = 1; bit_pos < num_wires_; ++bit_pos) {
+        for (int v = 0; v < tot_values; ++v) {
+          int sum = carry[v] + (int)A[bit_pos]->get_public_share().Get(v);
+          carry[v] = (sum / 2);
+          A[bit_pos]->get_public_share().Set((sum%2), v);
+        }
       }
     }
     for (std::size_t j = 0; j < num_wires_; ++j) {
