@@ -260,8 +260,15 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend,
   auto& arithmetic_tof = backend.get_gate_factory(arithmetic_protocol);
   auto& boolean_tof = backend.get_gate_factory(boolean_protocol);
 
+  // some version of power law : 
+  // std::vector<std::size_t> inps = approx_power_law_sampling(num_clients);
 
-  std::vector<std::size_t> inps = approx_power_law_sampling(num_clients);
+  // fully random :
+  std::vector<std::size_t> inps(num_clients, 0);
+  std::mt19937_64 rng(/*fixed_seed = */2);
+  for (int i = 0 ; i < num_clients; ++i) {
+    inps[i] = rng();
+  }
   // for (int i = 0; i < num_clients; ++i) {
   //   inps[i] = (i%4);
   // }
