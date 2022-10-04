@@ -204,13 +204,12 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
 
   auto& arithmetic_tof = backend.get_gate_factory(arithmetic_protocol);
   auto& boolean_tof = backend.get_gate_factory(boolean_protocol);
-  std::vector<std::size_t> inps(1000);
-  for (int i = 0; i < inps.size() ; ++i) {
-    inps[i] = (i*i*i)%3456;
-  }
+  std::vector<std::size_t> inps(400000);
   std::mt19937_64 rng(/*fixed_seed = */1);
-  std::shuffle(inps.begin(), inps.end(), rng);
-  for (auto x : inps) std::cout << x << "\n";
+  for (int i = 0; i < inps.size() ; ++i) {
+    inps[i] = rng();
+  }
+  for (int x = 0; x < 10 && x < inps.size(); ++x) std::cout << inps[x] << "\n";
   auto xy = make_boolean_share(inps);
   auto bo = cast_wires(xy);
   auto sort_op = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::SORT, bo);
