@@ -311,7 +311,7 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend,
 
   backend.run();
 
-  assert(shuffle_after_compaction.size() == BIT_SIZE + extra_wires);
+  assert(shuffle_after_compaction.size() == 64 + extra_wires);
 
   for (auto& wire : shuffle_after_compaction) wire->wait_online();
 
