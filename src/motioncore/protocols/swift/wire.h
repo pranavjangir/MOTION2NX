@@ -74,7 +74,7 @@ template <typename T>
 class ArithmeticSWIFTWire : public NewWire, public ENCRYPTO::enable_wait_setup {
  public:
   ArithmeticSWIFTWire(std::size_t num_simd)
-      : NewWire(num_simd), public_share_(num_simd) {
+      : NewWire(num_simd), public_share_(num_simd, 0) {
         secret_share_[0].resize(num_simd, 0);
         secret_share_[1].resize(num_simd, 0);
         secret_share_[2].resize(num_simd, 0);
