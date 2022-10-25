@@ -270,15 +270,19 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
     idx[i] = i;
   }
   auto allones_wire = make_boolean_share(allones, BIT_SIZE); // Used for eq check.
+  for (int i = 1; i < BIT_SIZE; ++i) allones_wire[i] = allones_wire[0];
+  auto allones_wire64 = make_boolean_share(allones, 64); // Used for tag equality checking.
+  for (int i = 1; i < 64; ++i) allones_wire64[i] = allones_wire64[0];
   auto allzeroes_wire = make_boolean_share(hh, 64); // Used for addition / multiplication.
   auto allk_wire = make_boolean_share(allK, 64);
   auto index_wire = make_boolean_share(idx, 64);
   auto allones_casted = cast_wires(allones_wire);
+  auto allones64_casted = cast_wires(allones_wire64);
   auto allzeroes_casted = cast_wires(allzeroes_wire);
   auto allk_casted = cast_wires(allk_wire);
   auto index_casted = cast_wires(index_wire);
   std::vector<std::size_t> vv = {3, 4, 3, 3, 4};
-  for (int iter = 0; iter < 5; ++iter) {
+  for (int iter = 0; iter < num_clients; ++iter) {
     auto randm = vv[iter];
     std::vector<std::size_t> client(K, randm);
     auto d = make_boolean_share(client, BIT_SIZE);
@@ -286,6 +290,7 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
     MOTION::CircuitLoader circuit_loader;
     auto& eq_circuit =
       circuit_loader.load_eq_circuit(BIT_SIZE);
+    auto& eq_circuit64 = circuit_loader.load_eq_circuit(64);
     auto xorr = boolean_tof.make_binary_gate(ENCRYPTO::PrimitiveOperationType::XOR,
    V_casted, d_casted);
    auto xor_inv = boolean_tof.make_unary_gate(
@@ -296,7 +301,7 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
     // TODO(pranav): Just check the MSB and LSB correctness?
     boolean_match_expanded[0] = boolean_match[0];
     
-    auto& gt_circuit = circuit_loader.load_gt_circuit(BIT_SIZE, true);
+    auto& gt_circuit = circuit_loader.load_gt_circuit(64, true);
     auto& addition_circuit = circuit_loader.load_circuit(fmt::format("int_add64_depth.bristol"),
           MOTION::CircuitFormat::Bristol);
     auto gt = backend.make_circuit(gt_circuit, C_casted, allzeroes_casted);
@@ -321,7 +326,7 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
     boolean_tags, allk_casted);
     auto xor_k_eq_inv = boolean_tof.make_unary_gate(
       ENCRYPTO::PrimitiveOperationType::INV, xorr_k_eq);
-    auto boolean_k_eq = backend.make_circuit(eq_circuit, xor_k_eq_inv, allones_casted);
+    auto boolean_k_eq = backend.make_circuit(eq_circuit64, xor_k_eq_inv, allones64_casted);
     auto last_index_one_hot = boolean_tof.make_binary_gate(
       ENCRYPTO::PrimitiveOperationType::AND, boolean_k_eq, boolean_empty);
     // Take cascade of last_index_one_hot to get the b_not_empty single bit.
@@ -338,8 +343,10 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
     
 
     // Second part of the computation : Actual updation of C and V.
-    auto b_not_empty = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::COMPRESS,
+    auto b_compressed_empty = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::COMPRESS,
     last_index_one_hot);
+    auto b_not_empty = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::INV,
+    b_compressed_empty);
     auto b_found = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::COMPRESS,
     boolean_match);
     auto b_not_found = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::INV,
@@ -348,11 +355,11 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
       ENCRYPTO::PrimitiveOperationType::AND, b_not_empty, b_not_found);
     assert(b_decrement.size() == 1);
     assert(b_decrement[0]->get_num_simd() == K);
-    auto boolean_no_match = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::INV,
-    boolean_match);
+    // auto boolean_no_match = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::INV,
+    // boolean_match);
 
     auto b_to_fill = boolean_tof.make_binary_gate(
-      ENCRYPTO::PrimitiveOperationType::AND, boolean_no_match, last_index_one_hot);
+      ENCRYPTO::PrimitiveOperationType::AND, b_not_found, last_index_one_hot);
 
     auto b_to_fill64 = expands(b_to_fill, 64);
     auto b_to_fillBITS = expands(b_to_fill, BIT_SIZE);
@@ -360,20 +367,23 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
     auto b_decrement_expanded = allzeroes_casted;
     b_decrement_expanded[0] = b_decrement[0];
 
-    auto negative_b_dec = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::BNEG,
+    auto binary_one = allzeroes_casted;
+    binary_one[0] = allones_casted[0];
+
+    auto b_dec_inv = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::INV,
     b_decrement_expanded);
+    auto negative_b_dec = backend.make_circuit(addition_circuit, b_dec_inv, binary_one);
 
     assert(negative_b_dec.size() == 64);
 
     auto new_C = backend.make_circuit(addition_circuit, C_casted, negative_b_dec);
-    auto binary_one = allzeroes_casted;
-    binary_one[0] = allones_casted[0];
+    // C_casted = b_decrement_expanded;
     C_casted = condswap(binary_one, new_C, b_to_fill64, boolean_tof);
     V_casted = condswap(d_casted, V_casted, b_to_fillBITS, boolean_tof);
   }
 
   // Next we want to check the list of heavy hitters.
-  std::vector<std::uint64_t> all_tau(K, 2);
+  std::vector<std::uint64_t> all_tau(K, 0);
   auto tau_wire = make_boolean_share(all_tau, 64);
   auto casted_tau = cast_wires(tau_wire);
   MOTION::CircuitLoader circuit_loader;
@@ -384,15 +394,21 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   auto final_hh_list = boolean_tof.make_binary_gate(ENCRYPTO::PrimitiveOperationType::AND, comp_op_expanded,
   V_casted);
   auto heavy_hitters_fut = boolean_tof.make_boolean_output_gate_my(MOTION::ALL_PARTIES, final_hh_list);
-     //auto heavy_hitters_fut = boolean_tof.make_boolean_output_gate_my(MOTION::ALL_PARTIES, C_casted);
+  // auto heavy_hitters_fut = boolean_tof.make_boolean_output_gate_my(MOTION::ALL_PARTIES, C_casted);
+  auto count_fut = boolean_tof.make_boolean_output_gate_my(MOTION::ALL_PARTIES, C_casted);
   
   // execute the protocol
   backend.run();
 
   auto hhlist = heavy_hitters_fut.get();
+  auto counts = count_fut.get();
 
   for (auto& hh : hhlist) {
     std::cout << hh.AsString() << std::endl;
+  }
+  std::cout << "Counts ---------------------------------------------->\n\n";
+  for (auto& c : counts) {
+    std::cout << c.AsString() << std::endl;
   }
 }
 

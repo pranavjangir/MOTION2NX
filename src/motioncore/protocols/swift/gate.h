@@ -186,6 +186,31 @@ class BooleanSWIFTBitToArithmeticGate : public detail::BasicBooleanToArithmeticS
   std::array<std::vector<T>, 3> rss_sharing_mt_;
 };
 
+class BooleanSWIFTCompressGate : public detail::BasicBooleanSWIFTUnaryGate {
+ public:
+  BooleanSWIFTCompressGate(std::size_t gate_id, SWIFTProvider&, BooleanSWIFTWireVector&&);
+  bool need_setup() const noexcept override { return true; }
+  bool need_online() const noexcept override { return true; }
+  void evaluate_setup() override;
+  void evaluate_online() override;
+
+ private:
+  SWIFTProvider& swift_provider_;
+};
+
+class BooleanSWIFTNegationGate : public detail::BasicBooleanSWIFTUnaryGate {
+ public:
+  BooleanSWIFTNegationGate(std::size_t gate_id, SWIFTProvider&, BooleanSWIFTWireVector&&);
+  bool need_setup() const noexcept override { return true; }
+  bool need_online() const noexcept override { return true; }
+  void evaluate_setup() override;
+  void evaluate_online() override;
+
+ private:
+  SWIFTProvider& swift_provider_;
+};
+
+
 class BooleanSWIFTSORTGate : public detail::BasicBooleanSWIFTUnaryGate {
  public:
   BooleanSWIFTSORTGate(std::size_t gate_id, SWIFTProvider&, BooleanSWIFTWireVector&&);

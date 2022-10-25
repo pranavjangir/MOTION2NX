@@ -674,6 +674,117 @@ template class BooleanSWIFTBitToArithmeticGate<std::uint16_t>;
 template class BooleanSWIFTBitToArithmeticGate<std::uint32_t>;
 template class BooleanSWIFTBitToArithmeticGate<std::uint64_t>;
 
+BooleanSWIFTCompressGate::BooleanSWIFTCompressGate(std::size_t gate_id,
+ SWIFTProvider& swift_provider, BooleanSWIFTWireVector&& in)
+: detail::BasicBooleanSWIFTUnaryGate(gate_id, std::move(in),
+                                         !swift_provider.is_my_job(gate_id)),
+                                          swift_provider_(swift_provider) {
+}
+
+void BooleanSWIFTCompressGate::evaluate_setup() {
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = this->inputs_[0]->get_num_simd();
+  std::vector<std::vector<bool>> ss(num_wires_);
+  for (int i = 0; i < num_wires_; ++i) {
+    this->inputs_[i]->wait_setup();
+    ss[i].resize(3, false);
+    for (int j = 0; j < num_simd; ++j) {
+      for (int k = 0; k < 3; ++k) {
+        ss[i][k] = ss[i][k] ^ (bool)this->inputs_[i]->get_secret_share()[k].Get(j);
+      }
+    }
+  }
+  for (int i = 0; i < num_wires_; ++i) {
+    for (int j = 0; j < num_simd; ++j) {
+      for (int k = 0; k < 3; ++k) {
+        this->outputs_[i]->get_secret_share()[k].Set(
+          ss[i][k], j);
+      }
+    }
+    this->outputs_[i]->set_setup_ready();
+  }
+  this->set_setup_ready();
+}
+
+void BooleanSWIFTCompressGate::evaluate_online() {
+  this->wait_setup();
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = this->inputs_[0]->get_num_simd();
+  std::vector<bool> ps(num_wires_, false);
+  for (int i = 0; i < num_wires_; ++i) {
+    this->inputs_[i]->wait_online();
+    for (int j = 0; j < num_simd; ++j) {
+      ps[i] = ps[i] ^ this->inputs_[i]->get_public_share().Get(j);
+    }
+  }
+  for (int i = 0; i < num_wires_; ++i) {
+    for (int j = 0; j < num_simd; ++j) {
+      this->outputs_[i]->get_public_share().Set(ps[i], j);
+    }
+    this->outputs_[i]->set_online_ready();
+  }
+  this->set_online_ready();
+}
+
+
+BooleanSWIFTNegationGate::BooleanSWIFTNegationGate(std::size_t gate_id,
+ SWIFTProvider& swift_provider, BooleanSWIFTWireVector&& in)
+: detail::BasicBooleanSWIFTUnaryGate(gate_id, std::move(in),
+                                         !swift_provider.is_my_job(gate_id)),
+                                          swift_provider_(swift_provider) {
+}
+
+void BooleanSWIFTNegationGate::evaluate_setup() {
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = this->inputs_[0]->get_num_simd();
+  std::vector<std::vector<bool>> ss(num_wires_);
+  for (int i = 0; i < num_wires_; ++i) {
+    this->inputs_[i]->wait_setup();
+    this->outputs_[i]->get_secret_share() = 
+    this->inputs_[i]->get_secret_share();
+    this->outputs_[i]->set_setup_ready();
+  }
+  this->set_setup_ready();
+}
+
+void BooleanSWIFTNegationGate::evaluate_online() {
+  this->wait_setup();
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = this->inputs_[0]->get_num_simd();
+  for (int i = 0; i < num_wires_; ++i) {
+    this->inputs_[i]->wait_online();
+    // this->outputs_[i]->get_public_share() = this->inputs_[i]->get_public_share();
+    for (int j = 0; j < num_simd; ++j) {
+      this->outputs_[i]->get_public_share().Set(
+        this->inputs_[i]->get_public_share().Get(j) ^ 1, j);
+    }
+    this->outputs_[i]->set_online_ready();
+  }
+
+  // std::vector<int> carry(num_simd, 0);
+  // for (int v = 0; v < num_simd; ++v) {
+  //   int sum = 1 + (int)this->outputs_[0]->get_public_share().Get(v);
+  //   std::cout << "val === " << this->outputs_[0]->get_public_share().Get(v) <<" --- " << sum << std::endl;
+
+  //   carry[v] = (sum / 2);
+  //   std::cout <<"v : " << v << " -- "<< carry[v] << std::endl;
+  //   this->outputs_[0]->get_public_share().Set((sum%2), v);
+  //   this->outputs_[0]->set_online_ready();
+  // }
+  // for (int bit_pos = 1; bit_pos < num_wires_; ++bit_pos) {
+  //   for (int v = 0; v < num_simd; ++v) {
+  //     int sum = carry[v] + (int)this->outputs_[bit_pos]->get_public_share().Get(v);
+  //     std::cout << "val =++++++== " << this->outputs_[bit_pos]->get_public_share().Get(v) <<" --- " << sum << std::endl;
+  //     carry[v] = (sum / 2);
+  //     std::cout <<"v : " << v << " -+++++++++++++- "<< carry[v] << std::endl;
+  //     this->outputs_[bit_pos]->get_public_share().Set((sum%2), v);
+  //     this->outputs_[bit_pos]->set_online_ready();
+  //   }
+  // }
+
+  this->set_online_ready();
+}
+
 BooleanSWIFTSHUFFLEGate::BooleanSWIFTSHUFFLEGate(std::size_t gate_id, SWIFTProvider& swift_provider,
                                          BooleanSWIFTWireVector&& in)
     : detail::BasicBooleanSWIFTUnaryGate(gate_id, std::move(in),
