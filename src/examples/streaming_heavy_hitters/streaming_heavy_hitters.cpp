@@ -56,6 +56,7 @@ struct Options {
   bool json;
   std::size_t num_repetitions;
   std::size_t num_clients;
+  std::size_t topk;
   std::size_t num_simd;
   bool sync_between_setup_and_online;
   MOTION::MPCProtocol arithmetic_protocol;
@@ -83,6 +84,7 @@ std::optional<Options> parse_program_options(int argc, char* argv[]) {
     ("input-value", po::value<std::uint64_t>()->required(), "input value for Yao's Millionaires' Problem")
     ("repetitions", po::value<std::size_t>()->default_value(1), "number of repetitions")
     ("num_clients", po::value<std::uint64_t>()->required(), "number of clients to run for")
+    ("topk", po::value<std::uint64_t>()->required(), "the top k elements to return")
     ("num-simd", po::value<std::size_t>()->default_value(1), "number of SIMD values")
     ("sync-between-setup-and-online", po::bool_switch()->default_value(false),
      "run a synchronization protocol before the online phase starts")
@@ -114,6 +116,7 @@ std::optional<Options> parse_program_options(int argc, char* argv[]) {
   options.json = vm["json"].as<bool>();
   options.num_repetitions = vm["repetitions"].as<std::size_t>();
   options.num_clients = vm["num_clients"].as<std::size_t>();
+  options.topk = vm["topk"].as<std::size_t>();
   options.num_simd = vm["num-simd"].as<std::size_t>();
   options.sync_between_setup_and_online = vm["sync-between-setup-and-online"].as<bool>();
   options.no_run = vm["no-run"].as<bool>();
@@ -160,32 +163,49 @@ std::unique_ptr<MOTION::Communication::CommunicationLayer> setup_communication(
                                                                      helper.setup_connections());
 }
 
-auto make_input_share(const std::size_t num_clients) {
-    MOTION::proto::swift::ArithmeticSWIFTWireP<std::uint64_t> wirez = 
-    std::make_shared<ArithmeticSWIFTWire<std::uint64_t>>(/*num_simd = */num_clients);
-
-    wirez->get_public_share() = MOTION::Helpers::RandomVector<std::uint64_t>(num_clients);
-    wirez->get_secret_share() = {MOTION::Helpers::RandomVector<std::uint64_t>(num_clients),
-    MOTION::Helpers::RandomVector<std::uint64_t>(num_clients),
-    MOTION::Helpers::RandomVector<std::uint64_t>(num_clients)};
-    wirez->set_setup_ready();
-    wirez->set_online_ready();
-
-    return wirez;
+static std::vector<std::shared_ptr<MOTION::NewWire>> cast_wires(BooleanSWIFTWireVector&& wires) {
+  return std::vector<std::shared_ptr<MOTION::NewWire>>(std::begin(wires), std::end(wires));
 }
 
-auto make_dummy_round(MOTION::proto::swift::ArithmeticSWIFTWireP<std::uint64_t> wire,
- MOTION::GateFactory& arith_factory) {
-    MOTION::WireVector wv;
-    auto casted_wire = std::dynamic_pointer_cast<MOTION::NewWire>(wire);
-    wv.push_back(std::move(casted_wire));
-    auto& swift_arith_factory = dynamic_cast<SWIFTProvider&>(arith_factory);
-    auto output = swift_arith_factory.make_dummy_gate<ArithmeticSWIFTDummyGate, std::uint64_t>(wv);
-    return output;
+int BIT_SIZE = 0;
+
+std::vector<uint64_t> convert_to_binary(uint64_t x) {
+    std::vector<uint64_t> res;
+    for (uint64_t i = 0; i < BIT_SIZE; ++i) {
+        if (x%2 == 1) res.push_back(1);
+        else res.push_back(0);
+        x /= 2;
+    }
+    return res;
+}
+
+auto make_boolean_share(std::vector<uint64_t> inputs, const int bit_size) {
+  BooleanSWIFTWireVector wires;
+  for (uint64_t j = 0; j < bit_size; ++j) {
+      auto wire = std::make_shared<BooleanSWIFTWire>(inputs.size());
+      wires.push_back(std::move(wire));
+  }
+  for (uint64_t i = 0 ; i < inputs.size(); ++i) {
+      auto conv = convert_to_binary(inputs[i]);
+      for (uint64_t j = 0; j < bit_size; ++j) {
+          wires[j]->get_public_share().Set(conv[j], i);
+      }
+  }
+  for (uint64_t j = 0; j < bit_size; ++j) {
+      wires[j]->set_setup_ready();
+      wires[j]->set_online_ready();
+  }
+  return wires;
+}
+
+auto make_arithmetic_share(std::size_t num_clients) {
+    ArithmeticSWIFTWireP<uint64_t> wire = 
+    std::make_shared<ArithmeticSWIFTWire<uint64_t>>(num_clients);
+    return wire;
 }
 
 auto make_boolean_conversion(MOTION::proto::swift::ArithmeticSWIFTWireP<std::uint64_t> wire, 
-MOTION::GateFactory& bool_factory, const int num_clients) {
+MOTION::GateFactory& bool_factory) {
     auto& swift_bool_factory = dynamic_cast<SWIFTProvider&>(bool_factory);
     MOTION::WireVector wv;
     auto casted_wire = std::dynamic_pointer_cast<MOTION::NewWire>(wire);
@@ -194,28 +214,30 @@ MOTION::GateFactory& bool_factory, const int num_clients) {
     return boolean_wires;
 }
 
-auto N_comparisions(MOTION::SwiftBackend& backend,
- MOTION::WireVector& boolean_shares, const ENCRYPTO::AlgorithmDescription& gt_circuit) {
-    // Create dummy wireVector having 64 wires.
-    // This will be used for comparision.
-    MOTION::WireVector A;
-    auto num_simd = boolean_shares[0]->get_num_simd();
-    for (std::size_t i = 0; i < boolean_shares.size(); ++i) {
-      auto new_wire = std::make_shared<BooleanSWIFTWire>(num_simd);
-      new_wire->get_public_share() = ENCRYPTO::BitVector<>::Random(num_simd);
+auto expands(MOTION::WireVector& inp, const int final_size) {
+  MOTION::WireVector op;
+  assert(inp.size() == 1);
+  for (int i = 0; i < final_size; ++i) {
+    op.push_back(inp[0]);
+  }
+  return std::move(op);
+}
 
-      new_wire->get_secret_share()[0] = ENCRYPTO::BitVector<>::Random(num_simd);
-      new_wire->get_secret_share()[1] = ENCRYPTO::BitVector<>::Random(num_simd);
-      new_wire->get_secret_share()[2] = ENCRYPTO::BitVector<>::Random(num_simd);
-
-      new_wire->set_setup_ready();
-      new_wire->set_online_ready();
-
-      auto casted_wire = std::dynamic_pointer_cast<MOTION::NewWire>(new_wire);
-      A.push_back(std::move(casted_wire));
-    }
-    auto output = backend.make_circuit(gt_circuit, boolean_shares, A);
-    return output;
+auto condswap(MOTION::WireVector& A, MOTION::WireVector& B, MOTION::WireVector& cond,
+MOTION::GateFactory& bool_factory) {
+  // if cond is true, chose A, otherwise chose B.
+  
+  // cond AND with A.
+  auto condA = bool_factory.make_binary_gate(
+      ENCRYPTO::PrimitiveOperationType::AND, A, cond);
+  
+  // cond negation AND with B.
+  auto cond_neg = bool_factory.make_unary_gate(ENCRYPTO::PrimitiveOperationType::INV, cond);
+  auto condNegB = bool_factory.make_binary_gate(
+      ENCRYPTO::PrimitiveOperationType::AND, B, cond_neg);
+  auto selection = bool_factory.make_binary_gate(
+      ENCRYPTO::PrimitiveOperationType::XOR, condA, condNegB);
+  return std::move(selection);
 }
 
 void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
@@ -225,6 +247,7 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   }
 
   const int num_clients = options.num_clients;
+  const int K = options.topk;
 
   MOTION::MPCProtocol arithmetic_protocol = options.arithmetic_protocol;
   MOTION::MPCProtocol boolean_protocol = options.boolean_protocol;
@@ -232,28 +255,145 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   auto& arithmetic_tof = backend.get_gate_factory(arithmetic_protocol);
   auto& boolean_tof = backend.get_gate_factory(boolean_protocol);
 
-  auto arith_shares = make_input_share(num_clients);
-  // auto dummy_output = make_dummy_round(arith_shares, arithmetic_tof);
-  
-  auto boolean_shares = make_boolean_conversion(arith_shares, boolean_tof, num_clients);
-  // int comparision_rounds = (int)(log2(num_clients)) + 2;
+  std::vector<std::size_t> hh(K, 0);
+  std::mt19937_64 rng(/*fixed_seed = */2);
 
+  auto C = make_boolean_share(hh, 64);
+  auto V = make_boolean_share(hh, BIT_SIZE);
+  auto V_casted = cast_wires(V);
+  auto C_casted = cast_wires(C);
+
+  std::vector<std::size_t> allones(K, 1);
+  std::vector<std::size_t> allK(K, K);
+  std::vector<std::size_t> idx(K, 0);
+  for (int i = 0; i < K; ++i) {
+    idx[i] = i;
+  }
+  auto allones_wire = make_boolean_share(allones, BIT_SIZE); // Used for eq check.
+  auto allzeroes_wire = make_boolean_share(hh, 64); // Used for addition / multiplication.
+  auto allk_wire = make_boolean_share(allK, 64);
+  auto index_wire = make_boolean_share(idx, 64);
+  auto allones_casted = cast_wires(allones_wire);
+  auto allzeroes_casted = cast_wires(allzeroes_wire);
+  auto allk_casted = cast_wires(allk_wire);
+  auto index_casted = cast_wires(index_wire);
+  std::vector<std::size_t> vv = {3, 4, 3, 3, 4};
+  for (int iter = 0; iter < 5; ++iter) {
+    auto randm = vv[iter];
+    std::vector<std::size_t> client(K, randm);
+    auto d = make_boolean_share(client, BIT_SIZE);
+    auto d_casted = cast_wires(d);
+    MOTION::CircuitLoader circuit_loader;
+    auto& eq_circuit =
+      circuit_loader.load_eq_circuit(BIT_SIZE);
+    auto xorr = boolean_tof.make_binary_gate(ENCRYPTO::PrimitiveOperationType::XOR,
+   V_casted, d_casted);
+   auto xor_inv = boolean_tof.make_unary_gate(
+    ENCRYPTO::PrimitiveOperationType::INV, xorr);
+    auto boolean_match = backend.make_circuit(eq_circuit, xor_inv, allones_casted);
+    assert(boolean_match.size() == 1);
+    auto boolean_match_expanded = allzeroes_casted;
+    // TODO(pranav): Just check the MSB and LSB correctness?
+    boolean_match_expanded[0] = boolean_match[0];
+    
+    auto& gt_circuit = circuit_loader.load_gt_circuit(BIT_SIZE, true);
+    auto& addition_circuit = circuit_loader.load_circuit(fmt::format("int_add64_depth.bristol"),
+          MOTION::CircuitFormat::Bristol);
+    auto gt = backend.make_circuit(gt_circuit, C_casted, allzeroes_casted);
+    auto boolean_empty = boolean_tof.make_unary_gate(
+        ENCRYPTO::PrimitiveOperationType::INV, gt);
+  //   auto arithmetic_match = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::BIT2A,
+  //  boolean_match);
+    auto updated_C = backend.make_circuit(addition_circuit, C_casted, boolean_match_expanded);
+    // auto updated_C = boolean_tof.make_binary_gate(ENCRYPTO::PrimitiveOperationType::ADD,
+    //  arithmetic_match, C_casted);
+    assert(updated_C.size() == 64);
+    // TODO(pranav): Check if this is valid or not.
+   C_casted = updated_C;
+   auto arithmetic_empty = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::BIT2A,
+   boolean_empty);
+   auto compacted_empty = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::COMPACT,
+   arithmetic_empty);
+   // Get boolean transformation.
+   auto boolean_tags = make_boolean_conversion(
+    std::dynamic_pointer_cast<ArithmeticSWIFTWire<std::uint64_t>>(compacted_empty[0]), boolean_tof);
+    auto xorr_k_eq = boolean_tof.make_binary_gate(ENCRYPTO::PrimitiveOperationType::XOR,
+    boolean_tags, allk_casted);
+    auto xor_k_eq_inv = boolean_tof.make_unary_gate(
+      ENCRYPTO::PrimitiveOperationType::INV, xorr_k_eq);
+    auto boolean_k_eq = backend.make_circuit(eq_circuit, xor_k_eq_inv, allones_casted);
+    auto last_index_one_hot = boolean_tof.make_binary_gate(
+      ENCRYPTO::PrimitiveOperationType::AND, boolean_k_eq, boolean_empty);
+    // Take cascade of last_index_one_hot to get the b_not_empty single bit.
+    assert(last_index_one_hot.size() == 1);
+    // Duplicate wires.
+    MOTION::WireVector one_hot_expanded;
+    for (int bit_pos = 0; bit_pos < 64; ++bit_pos) {
+      one_hot_expanded.push_back(last_index_one_hot[0]);
+    }
+    // Gives you boolean integer wires of size 64.. all but one of which are 0.
+    // The non zero one contains the index of the last index.
+    auto last_index = boolean_tof.make_binary_gate(
+      ENCRYPTO::PrimitiveOperationType::AND, one_hot_expanded, index_casted);
+    
+
+    // Second part of the computation : Actual updation of C and V.
+    auto b_not_empty = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::COMPRESS,
+    last_index_one_hot);
+    auto b_found = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::COMPRESS,
+    boolean_match);
+    auto b_not_found = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::INV,
+    b_found);
+    auto b_decrement = boolean_tof.make_binary_gate(
+      ENCRYPTO::PrimitiveOperationType::AND, b_not_empty, b_not_found);
+    assert(b_decrement.size() == 1);
+    assert(b_decrement[0]->get_num_simd() == K);
+    auto boolean_no_match = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::INV,
+    boolean_match);
+
+    auto b_to_fill = boolean_tof.make_binary_gate(
+      ENCRYPTO::PrimitiveOperationType::AND, boolean_no_match, last_index_one_hot);
+
+    auto b_to_fill64 = expands(b_to_fill, 64);
+    auto b_to_fillBITS = expands(b_to_fill, BIT_SIZE);
+
+    auto b_decrement_expanded = allzeroes_casted;
+    b_decrement_expanded[0] = b_decrement[0];
+
+    auto negative_b_dec = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::BNEG,
+    b_decrement_expanded);
+
+    assert(negative_b_dec.size() == 64);
+
+    auto new_C = backend.make_circuit(addition_circuit, C_casted, negative_b_dec);
+    auto binary_one = allzeroes_casted;
+    binary_one[0] = allones_casted[0];
+    C_casted = condswap(binary_one, new_C, b_to_fill64, boolean_tof);
+    V_casted = condswap(d_casted, V_casted, b_to_fillBITS, boolean_tof);
+  }
+
+  // Next we want to check the list of heavy hitters.
+  std::vector<std::uint64_t> all_tau(K, 2);
+  auto tau_wire = make_boolean_share(all_tau, 64);
+  auto casted_tau = cast_wires(tau_wire);
   MOTION::CircuitLoader circuit_loader;
-  auto& gt_circuit =
-        circuit_loader.load_gt_circuit(64, /*depth_optimized=*/true);
+  auto& gt_circuit = circuit_loader.load_gt_circuit(64, true);
+  auto comp_op = backend.make_circuit(gt_circuit, C_casted, casted_tau);
+  assert(comp_op.size() == 1);
+  auto comp_op_expanded = expands(comp_op, BIT_SIZE);
+  auto final_hh_list = boolean_tof.make_binary_gate(ENCRYPTO::PrimitiveOperationType::AND, comp_op_expanded,
+  V_casted);
+  auto heavy_hitters_fut = boolean_tof.make_boolean_output_gate_my(MOTION::ALL_PARTIES, final_hh_list);
+     //auto heavy_hitters_fut = boolean_tof.make_boolean_output_gate_my(MOTION::ALL_PARTIES, C_casted);
   
-  // for (std::size_t reps = 0; reps < comparision_rounds; ++reps) {
-  //   auto X = N_comparisions(backend, boolean_shares, gt_circuit);
-  // }
-
-  // auto dummy_output2 = make_dummy_round(arith_shares, arithmetic_tof);
-
-  // // Should there be a conversion gate here?
-  auto Y = N_comparisions(backend, boolean_shares, gt_circuit);
-
-
   // execute the protocol
   backend.run();
+
+  auto hhlist = heavy_hitters_fut.get();
+
+  for (auto& hh : hhlist) {
+    std::cout << hh.AsString() << std::endl;
+  }
 }
 
 void print_stats(const Options& options,
@@ -279,7 +419,8 @@ int main(int argc, char* argv[]) {
   if (!options.has_value()) {
     return EXIT_FAILURE;
   }
-
+  // TODO(pranav): Make this changeable from the command line.
+  BIT_SIZE = 64;
   try {
     auto comm_layer = setup_communication(*options);
     auto logger = std::make_shared<MOTION::Logger>(options->my_id,
