@@ -281,8 +281,8 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   auto allzeroes_casted = cast_wires(allzeroes_wire);
   auto allk_casted = cast_wires(allk_wire);
   auto index_casted = cast_wires(index_wire);
-  std::vector<std::size_t> vv = {3, 4, 3, 3, 4};
-  for (int iter = 0; iter < num_clients; ++iter) {
+  std::vector<std::size_t> vv = {3,3,3, 4, 5, 6, 7, 8};
+  for (int iter = 0; iter < vv.size(); ++iter) {
     auto randm = vv[iter];
     std::vector<std::size_t> client(K, randm);
     auto d = make_boolean_share(client, BIT_SIZE);
@@ -383,17 +383,17 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   }
 
   // Next we want to check the list of heavy hitters.
-  std::vector<std::uint64_t> all_tau(K, 0);
-  auto tau_wire = make_boolean_share(all_tau, 64);
-  auto casted_tau = cast_wires(tau_wire);
-  MOTION::CircuitLoader circuit_loader;
-  auto& gt_circuit = circuit_loader.load_gt_circuit(64, true);
-  auto comp_op = backend.make_circuit(gt_circuit, C_casted, casted_tau);
-  assert(comp_op.size() == 1);
-  auto comp_op_expanded = expands(comp_op, BIT_SIZE);
-  auto final_hh_list = boolean_tof.make_binary_gate(ENCRYPTO::PrimitiveOperationType::AND, comp_op_expanded,
-  V_casted);
-  auto heavy_hitters_fut = boolean_tof.make_boolean_output_gate_my(MOTION::ALL_PARTIES, final_hh_list);
+  // std::vector<std::uint64_t> all_tau(K, 0);
+  // auto tau_wire = make_boolean_share(all_tau, 64);
+  // auto casted_tau = cast_wires(tau_wire);
+  // MOTION::CircuitLoader circuit_loader;
+  // auto& gt_circuit = circuit_loader.load_gt_circuit(64, true);
+  // auto comp_op = backend.make_circuit(gt_circuit, C_casted, casted_tau);
+  // assert(comp_op.size() == 1);
+  // auto comp_op_expanded = expands(comp_op, BIT_SIZE);
+  // auto final_hh_list = boolean_tof.make_binary_gate(ENCRYPTO::PrimitiveOperationType::AND, comp_op_expanded,
+  // V_casted);
+  auto heavy_hitters_fut = boolean_tof.make_boolean_output_gate_my(MOTION::ALL_PARTIES, V_casted);
   // auto heavy_hitters_fut = boolean_tof.make_boolean_output_gate_my(MOTION::ALL_PARTIES, C_casted);
   auto count_fut = boolean_tof.make_boolean_output_gate_my(MOTION::ALL_PARTIES, C_casted);
   
