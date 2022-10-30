@@ -315,20 +315,20 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
     assert(updated_C.size() == 64);
     // TODO(pranav): Check if this is valid or not.
    C_casted = updated_C;
-   auto arithmetic_empty = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::BIT2A,
-   boolean_empty);
-   auto compacted_empty = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::COMPACT,
-   arithmetic_empty);
-   // Get boolean transformation.
-   auto boolean_tags = make_boolean_conversion(
-    std::dynamic_pointer_cast<ArithmeticSWIFTWire<std::uint64_t>>(compacted_empty[0]), boolean_tof);
-    auto xorr_k_eq = boolean_tof.make_binary_gate(ENCRYPTO::PrimitiveOperationType::XOR,
-    boolean_tags, allk_casted);
-    auto xor_k_eq_inv = boolean_tof.make_unary_gate(
-      ENCRYPTO::PrimitiveOperationType::INV, xorr_k_eq);
-    auto boolean_k_eq = backend.make_circuit(eq_circuit64, xor_k_eq_inv, allones64_casted);
-    auto last_index_one_hot = boolean_tof.make_binary_gate(
-      ENCRYPTO::PrimitiveOperationType::AND, boolean_k_eq, boolean_empty);
+//    auto arithmetic_empty = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::BIT2A,
+//    boolean_empty);
+//    auto compacted_empty = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::COMPACT,
+//    arithmetic_empty);
+//    // Get boolean transformation.
+//    auto boolean_tags = make_boolean_conversion(
+//     std::dynamic_pointer_cast<ArithmeticSWIFTWire<std::uint64_t>>(compacted_empty[0]), boolean_tof);
+//     auto xorr_k_eq = boolean_tof.make_binary_gate(ENCRYPTO::PrimitiveOperationType::XOR,
+//     boolean_tags, allk_casted);
+//     auto xor_k_eq_inv = boolean_tof.make_unary_gate(
+//       ENCRYPTO::PrimitiveOperationType::INV, xorr_k_eq);
+//     auto boolean_k_eq = backend.make_circuit(eq_circuit64, xor_k_eq_inv, allones64_casted);
+    auto last_index_one_hot = boolean_tof.make_unary_gate(
+      ENCRYPTO::PrimitiveOperationType::LASTEMPTY, boolean_empty);
     // Take cascade of last_index_one_hot to get the b_not_empty single bit.
     assert(last_index_one_hot.size() == 1);
     // Duplicate wires.

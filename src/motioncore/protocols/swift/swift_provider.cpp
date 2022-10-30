@@ -380,6 +380,8 @@ std::vector<std::shared_ptr<NewWire>> SWIFTProvider::make_unary_gate(
     return make_compaction_gate(in_a);
     case ENCRYPTO::PrimitiveOperationType::COMPRESS:
     return make_compress_gate(in_a);
+    case ENCRYPTO::PrimitiveOperationType::LASTEMPTY:
+    return make_last_empty_gate(in_a);
     case ENCRYPTO::PrimitiveOperationType::BNEG:
     return make_boolean_negation_gate(in_a);
     default:
@@ -471,6 +473,20 @@ std::pair<std::unique_ptr<NewGate>, WireVector> SWIFTProvider::construct_compres
 
 WireVector SWIFTProvider::make_compress_gate(const WireVector& in_a) {
   auto [gate, output] = construct_compress_gate(in_a);
+  gate_register_.register_gate(std::move(gate));
+  return output;
+}
+
+std::pair<std::unique_ptr<NewGate>, WireVector> SWIFTProvider::construct_last_empty_gate(
+    const WireVector& in_a) {
+  auto gate_id = gate_register_.get_next_gate_id();
+  auto gate = std::make_unique<BooleanSWIFTLastEmptyGate>(gate_id, *this, cast_wires(in_a));
+  auto output = gate->get_output_wires();
+  return {std::move(gate), cast_wires(std::move(output))};
+}
+
+WireVector SWIFTProvider::make_last_empty_gate(const WireVector& in_a) {
+  auto [gate, output] = construct_last_empty_gate(in_a);
   gate_register_.register_gate(std::move(gate));
   return output;
 }

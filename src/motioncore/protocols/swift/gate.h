@@ -198,6 +198,23 @@ class BooleanSWIFTCompressGate : public detail::BasicBooleanSWIFTUnaryGate {
   SWIFTProvider& swift_provider_;
 };
 
+class BooleanSWIFTLastEmptyGate : public detail::BasicBooleanSWIFTUnaryGate {
+ public:
+  BooleanSWIFTLastEmptyGate(std::size_t gate_id, SWIFTProvider&, BooleanSWIFTWireVector&&);
+  bool need_setup() const noexcept override { return true; }
+  bool need_online() const noexcept override { return true; }
+  void evaluate_setup() override;
+  void evaluate_setup_with_context(ExecutionContext&) override;
+  void evaluate_online() override;
+  void evaluate_online_with_context(ExecutionContext&) override;
+
+ private:
+  SWIFTProvider& swift_provider_;
+  std::vector<BooleanSWIFTWireVector> input_expanded_;
+  std::vector<BooleanSWIFTWireVector> comparision_output_;
+  std::vector<std::unique_ptr<NewGate>> comparision_gates_;
+};
+
 class BooleanSWIFTNegationGate : public detail::BasicBooleanSWIFTUnaryGate {
  public:
   BooleanSWIFTNegationGate(std::size_t gate_id, SWIFTProvider&, BooleanSWIFTWireVector&&);

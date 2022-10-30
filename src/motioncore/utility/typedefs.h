@@ -45,6 +45,7 @@ enum class PrimitiveOperationType : std::uint8_t {
   SHUFFLE,   // for Boolean circuit only
   BIT2A,   // for Boolean circuit only
   COMPRESS,
+  LASTEMPTY,
   BNEG,
   NEG,  // for arithmetic circuit only
   ADD,  // for arithmetic circuit only

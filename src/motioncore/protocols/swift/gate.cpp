@@ -726,6 +726,219 @@ void BooleanSWIFTCompressGate::evaluate_online() {
   this->set_online_ready();
 }
 
+std::vector<uint64_t> convert_to_binary(uint64_t x) {
+    std::vector<uint64_t> res;
+    for (uint64_t i = 0; i < 64; ++i) {
+        if (x%2 == 1) res.push_back(1);
+        else res.push_back(0);
+        x /= 2;
+    }
+    return res;
+}
+
+auto expands(MOTION::WireVector& inp, const int final_size) {
+  MOTION::WireVector op;
+  assert(inp.size() == 1);
+  for (int i = 0; i < final_size; ++i) {
+    op.push_back(inp[0]);
+  }
+  return std::move(op);
+}
+
+BooleanSWIFTLastEmptyGate::BooleanSWIFTLastEmptyGate(std::size_t gate_id,
+ SWIFTProvider& swift_provider, BooleanSWIFTWireVector&& in)
+: detail::BasicBooleanSWIFTUnaryGate(gate_id, std::move(in),
+                                         !swift_provider.is_my_job(gate_id)),
+                                          swift_provider_(swift_provider) {
+  auto num_simd = this->inputs_[0]->get_num_simd();
+  assert(this->inputs_.size() == 1);
+  std::vector<BooleanSWIFTWireVector> index_wires;
+  for (int i = 0; i < num_simd; ++i) {
+    auto bconv = convert_to_binary(i);
+    BooleanSWIFTWireVector wv;
+    for (int j = 0; j < 64; ++j) {
+      auto new_wire = std::make_shared<BooleanSWIFTWire>(1);
+      new_wire->get_public_share().Set(bconv[j] ,0);
+      new_wire->set_setup_ready();
+      new_wire->set_online_ready();
+      wv.push_back(std::move(new_wire));
+    }
+    index_wires.push_back(std::move(wv));
+  }
+
+  for (int i = 0; i < num_simd; ++i) {
+    BooleanSWIFTWireVector wv;
+    for (int j = 0; j < 64; ++j) {
+      auto new_wire = std::make_shared<BooleanSWIFTWire>(1);
+      wv.push_back(std::move(new_wire));
+    }
+    input_expanded_.push_back(std::move(wv));
+  }
+
+  std::vector<MOTION::WireVector> inverse_input;
+
+  for (int i = 0; i < num_simd; ++i) {
+    auto casted_ip = cast_wires(input_expanded_[i]);
+    auto inv = swift_provider_.make_unary_gate(ENCRYPTO::PrimitiveOperationType::INV,
+   casted_ip);
+   inverse_input.push_back(std::move(inv));
+  }
+
+  BooleanSWIFTWireVector last_index;
+  BooleanSWIFTWireVector all_ones;
+  for (int i = 0; i < 64; ++i) {
+    auto new_wire = std::make_shared<BooleanSWIFTWire>(1);
+    new_wire->get_public_share().Set(1, 0);
+    new_wire->set_setup_ready();
+    new_wire->set_online_ready();
+  }
+  all_ones = last_index;
+  auto last_index_casted = cast_wires(last_index);
+
+  for (int i = 0; i < num_simd; ++i) {
+    auto inv_inputXlast_index = swift_provider_.make_binary_gate(ENCRYPTO::PrimitiveOperationType::AND,
+   inverse_input[i], last_index_casted);
+   auto inputXcurrent_index = swift_provider_.make_binary_gate(ENCRYPTO::PrimitiveOperationType::AND,
+   cast_wires(input_expanded_[i]), cast_wires(index_wires[i]));
+   last_index_casted = swift_provider_.make_binary_gate(ENCRYPTO::PrimitiveOperationType::XOR,
+   inv_inputXlast_index, inputXcurrent_index);
+  }
+
+  // we have an index now.
+  // next up we need to compare this with every index. and store the wires in comparision_output_;
+  auto& eq_circuit =
+      swift_provider_.get_circuit_loader().load_eq_circuit(64);
+  for (int i = 0; i < num_simd; ++i) {
+    auto xor_i = swift_provider_.make_binary_gate(ENCRYPTO::PrimitiveOperationType::XOR,
+   cast_wires(index_wires[i]), last_index_casted);
+   auto inv_i = swift_provider_.make_unary_gate(ENCRYPTO::PrimitiveOperationType::INV,
+   xor_i);
+   auto A = cast_wires(all_ones);
+   A.insert(
+      A.end(),
+      std::make_move_iterator(inv_i.begin()),
+      std::make_move_iterator(inv_i.end())
+    );
+   auto output_i = construct_two_input_circuit(swift_provider_, eq_circuit, A);
+   comparision_gates_.insert(comparision_gates_.end(),
+   std::make_move_iterator(output_i.first.begin()),
+      std::make_move_iterator(output_i.first.end()));
+   comparision_output_[i] = cast_wires(output_i.second);
+  }
+}
+
+void BooleanSWIFTLastEmptyGate::evaluate_setup() {
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = this->inputs_[0]->get_num_simd();
+  this->inputs_[0]->wait_setup();
+  for (int i = 0; i < num_simd; ++i) {
+    for (int j = 0; j < 64; ++j) {
+      auto& ss = input_expanded_[i][j]->get_secret_share();
+      ss[0].Set(this->inputs_[0]->get_secret_share()[0].Get(i) ,0);
+      ss[1].Set(this->inputs_[0]->get_secret_share()[1].Get(i) ,0);
+      ss[2].Set(this->inputs_[0]->get_secret_share()[2].Get(i) ,0);
+      input_expanded_[i][j]->set_setup_ready();
+    }
+  }
+  for (auto& gate : comparision_gates_) {
+    //exec_ctx.fpool_->post([&] { gate->evaluate_setup(); });
+    gate->evaluate_setup();
+  }
+  for (int i = 0; i < num_simd; ++i) {
+    assert(comparision_output_[i].size() == 1);
+    comparision_output_[i][0]->wait_setup();
+    for (int k = 0; k < 3; ++k) {
+      this->outputs_[0]->get_secret_share()[k].Set(
+      comparision_output_[i][0]->get_secret_share()[k].Get(0), i
+      );
+    }
+  }
+  this->outputs_[0]->set_setup_ready();
+  this->set_setup_ready();
+}
+
+void BooleanSWIFTLastEmptyGate::evaluate_setup_with_context(MOTION::ExecutionContext& exec_ctx) {
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = this->inputs_[0]->get_num_simd();
+  this->inputs_[0]->wait_setup();
+  for (int i = 0; i < num_simd; ++i) {
+    for (int j = 0; j < 64; ++j) {
+      auto& ss = input_expanded_[i][j]->get_secret_share();
+      ss[0].Set(this->inputs_[0]->get_secret_share()[0].Get(i) ,0);
+      ss[1].Set(this->inputs_[0]->get_secret_share()[1].Get(i) ,0);
+      ss[2].Set(this->inputs_[0]->get_secret_share()[2].Get(i) ,0);
+      input_expanded_[i][j]->set_setup_ready();
+    }
+  }
+  for (auto& gate : comparision_gates_) {
+    exec_ctx.fpool_->post([&] { gate->evaluate_setup(); });
+    //gate->evaluate_setup();
+  }
+  for (int i = 0; i < num_simd; ++i) {
+    assert(comparision_output_[i].size() == 1);
+    comparision_output_[i][0]->wait_setup();
+    for (int k = 0; k < 3; ++k) {
+      this->outputs_[0]->get_secret_share()[k].Set(
+      comparision_output_[i][0]->get_secret_share()[k].Get(0), i
+      );
+    }
+  }
+  this->outputs_[0]->set_setup_ready();
+  this->set_setup_ready();
+}
+
+void BooleanSWIFTLastEmptyGate::evaluate_online() {
+  this->wait_setup();
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = this->inputs_[0]->get_num_simd();
+  this->inputs_[0]->wait_online();
+  for (int i = 0; i < num_simd; ++i) {
+    for (int j = 0; j < 64; ++j) {
+      auto& ps = input_expanded_[i][j]->get_public_share();
+      ps.Set(this->inputs_[0]->get_public_share().Get(i) ,0);
+      input_expanded_[i][j]->set_online_ready();
+    }
+  }
+  for (auto& gate : comparision_gates_) {
+    //exec_ctx.fpool_->post([&] { gate->evaluate_setup(); });
+    gate->evaluate_online();
+  }
+  for (int i = 0; i < num_simd; ++i) {
+    assert(comparision_output_[i].size() == 1);
+    comparision_output_[i][0]->wait_online();
+    this->outputs_[0]->get_public_share().Set(
+    comparision_output_[i][0]->get_public_share().Get(0), i
+    );
+  }
+  this->outputs_[0]->set_online_ready();
+}
+
+void BooleanSWIFTLastEmptyGate::evaluate_online_with_context(MOTION::ExecutionContext& exec_ctx) {
+  this->wait_setup();
+  auto my_id = swift_provider_.get_my_id();
+  auto num_simd = this->inputs_[0]->get_num_simd();
+  this->inputs_[0]->wait_online();
+  for (int i = 0; i < num_simd; ++i) {
+    for (int j = 0; j < 64; ++j) {
+      auto& ps = input_expanded_[i][j]->get_public_share();
+      ps.Set(this->inputs_[0]->get_public_share().Get(i) ,0);
+      input_expanded_[i][j]->set_online_ready();
+    }
+  }
+  for (auto& gate : comparision_gates_) {
+    exec_ctx.fpool_->post([&] { gate->evaluate_online(); });
+    //gate->evaluate_online();
+  }
+  for (int i = 0; i < num_simd; ++i) {
+    assert(comparision_output_[i].size() == 1);
+    comparision_output_[i][0]->wait_online();
+    this->outputs_[0]->get_public_share().Set(
+    comparision_output_[i][0]->get_public_share().Get(0), i
+    );
+  }
+  this->outputs_[0]->set_online_ready();
+}
+
 
 BooleanSWIFTNegationGate::BooleanSWIFTNegationGate(std::size_t gate_id,
  SWIFTProvider& swift_provider, BooleanSWIFTWireVector&& in)
