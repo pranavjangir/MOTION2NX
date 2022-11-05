@@ -791,6 +791,7 @@ BooleanSWIFTLastEmptyGate::BooleanSWIFTLastEmptyGate(std::size_t gate_id,
     new_wire->get_public_share().Set(1, 0);
     new_wire->set_setup_ready();
     new_wire->set_online_ready();
+    last_index.push_back(std::move(new_wire));
   }
   all_ones = last_index;
   auto last_index_casted = cast_wires(last_index);
@@ -808,6 +809,7 @@ BooleanSWIFTLastEmptyGate::BooleanSWIFTLastEmptyGate(std::size_t gate_id,
   // next up we need to compare this with every index. and store the wires in comparision_output_;
   auto& eq_circuit =
       swift_provider_.get_circuit_loader().load_eq_circuit(64);
+  comparision_output_.resize(num_simd);
   for (int i = 0; i < num_simd; ++i) {
     auto xor_i = swift_provider_.make_binary_gate(ENCRYPTO::PrimitiveOperationType::XOR,
    cast_wires(index_wires[i]), last_index_casted);
