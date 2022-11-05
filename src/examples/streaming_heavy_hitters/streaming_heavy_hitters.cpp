@@ -61,7 +61,7 @@ struct Options {
   bool sync_between_setup_and_online;
   MOTION::MPCProtocol arithmetic_protocol;
   MOTION::MPCProtocol boolean_protocol;
-  std::uint64_t input_value;
+  std::uint64_t bit_size;
   std::size_t my_id;
   MOTION::Communication::tcp_parties_config tcp_config;
   bool no_run = false;
@@ -81,7 +81,7 @@ std::optional<Options> parse_program_options(int argc, char* argv[]) {
     ("json", po::bool_switch()->default_value(false), "output data in JSON format")
     ("arithmetic-protocol", po::value<std::string>()->required(), "2PC protocol (GMW or BEAVY)")
     ("boolean-protocol", po::value<std::string>()->required(), "2PC protocol (Yao, GMW or BEAVY)")
-    ("input-value", po::value<std::uint64_t>()->required(), "input value for Yao's Millionaires' Problem")
+    ("bit-size", po::value<std::uint64_t>()->required(), "input bit size")
     ("repetitions", po::value<std::size_t>()->default_value(1), "number of repetitions")
     ("num_clients", po::value<std::uint64_t>()->required(), "number of clients to run for")
     ("topk", po::value<std::uint64_t>()->required(), "the top k elements to return")
@@ -126,7 +126,7 @@ std::optional<Options> parse_program_options(int argc, char* argv[]) {
   auto boolean_protocol = vm["boolean-protocol"].as<std::string>();
   options.boolean_protocol = MOTION::MPCProtocol::BooleanSWIFT;
 
-  options.input_value = vm["input-value"].as<std::uint64_t>();
+  options.bit_size = vm["bit-size"].as<std::uint64_t>();
 
   const auto parse_party_argument =
       [](const auto& s) -> std::pair<std::size_t, MOTION::Communication::tcp_connection_config> {
@@ -281,9 +281,9 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   auto allzeroes_casted = cast_wires(allzeroes_wire);
   auto allk_casted = cast_wires(allk_wire);
   auto index_casted = cast_wires(index_wire);
-  std::vector<std::size_t> vv = {3,3,3, 4, 5, 6, 7, 8};
-  for (int iter = 0; iter < vv.size(); ++iter) {
-    auto randm = vv[iter];
+  // std::vector<std::size_t> vv = {3,3,3, 4, 5, 6, 7, 8};
+  for (int iter = 0; iter < num_clients; ++iter) {
+    auto randm = rng();
     std::vector<std::size_t> client(K, randm);
     auto d = make_boolean_share(client, BIT_SIZE);
     auto d_casted = cast_wires(d);
@@ -435,8 +435,7 @@ int main(int argc, char* argv[]) {
   if (!options.has_value()) {
     return EXIT_FAILURE;
   }
-  // TODO(pranav): Make this changeable from the command line.
-  BIT_SIZE = 64;
+  BIT_SIZE = options.value().bit_size;
   try {
     auto comm_layer = setup_communication(*options);
     auto logger = std::make_shared<MOTION::Logger>(options->my_id,
