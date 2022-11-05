@@ -161,7 +161,7 @@ std::unique_ptr<MOTION::Communication::CommunicationLayer> setup_communication(
                                                                      helper.setup_connections());
 }
 
-const int B = 64;
+const int B = 256;
 
 std::vector<uint64_t> convert_to_binary(uint64_t x) {
     std::vector<uint64_t> res;
@@ -207,25 +207,44 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   auto& arithmetic_tof = backend.get_gate_factory(arithmetic_protocol);
   auto& boolean_tof = backend.get_gate_factory(boolean_protocol);
   std::vector<std::size_t> inps(2);
-  inps[0] = 0;
-  inps[1] = 1;
+  inps[0] = 55;
+  inps[1] = 76;
   // for (int i = 0; i < inps.size() ; ++i) {
   //   inps[i] = (i*i*i)%20;
   // }
   for (auto i : inps) std::cout << i << " "; std::cout << std::endl;
   auto xy = make_boolean_share({inps[0]});
+  assert(xy.size() == B);
+  for (int i = 0; i < B; ++i) {
+    xy[i]->get_public_share().Set((xy[i]->get_public_share().Get(0) ^ 1) 
+    ,0);
+  }
+  int summ = xy[0]->get_public_share().Get(0) + 1;
+  int carry = summ / 2;
+  xy[0]->get_public_share().Set(summ%2, 0);
+  for (int i = 1; i < B; ++i) {
+    summ = carry + xy[i]->get_public_share().Get(0);
+    xy[i]->get_public_share().Set(summ%2, 0);
+    carry = (summ / 2);
+  }
   auto ab = make_boolean_share({inps[1]});
   std::cout << "----- " << std::numeric_limits<std::uint64_t>::max() << std::endl;
-  auto fke = make_boolean_share({std::numeric_limits<std::uint64_t>::max()}); // change this when B changes.
+  //auto fke = make_boolean_share({std::numeric_limits<std::uint64_t>::max()}); // change this when B changes.
   auto bo = cast_wires(xy);
   auto bo2 = cast_wires(ab);
-  auto fkee = cast_wires(fke);
+  // auto fkee = cast_wires(fke);
 
-  auto xoor_op = boolean_tof.make_binary_gate(ENCRYPTO::PrimitiveOperationType::XOR, bo, bo2);
-  auto xor_inv = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::INV, xoor_op);
+  // auto xoor_op = boolean_tof.make_binary_gate(ENCRYPTO::PrimitiveOperationType::XOR, bo, bo2);
+  // auto xor_inv = boolean_tof.make_unary_gate(ENCRYPTO::PrimitiveOperationType::INV, xoor_op);
   MOTION::CircuitLoader circuit_loader;
   auto& eq_circuit =
-      circuit_loader.load_eq_circuit(B);
+      circuit_loader.load_gt_circuit(B, true);
+  ENCRYPTO::AlgorithmDescription gt_circuit = eq_circuit;
+  for (auto& gate : gt_circuit.gates_) {
+    gate.parent_a_--;
+    if (gate.parent_b_.has_value()) gate.parent_b_.value() = gate.parent_b_.value() - 1;
+    gate.output_wire_--;
+  }
   // ENCRYPTO::AlgorithmDescription circ = gt_circuit;
   // for (auto &gate : circ.gates_) {
   //   gate.parent_a_--;
@@ -233,7 +252,7 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
   //   gate.output_wire_--;
   // }
   // apply the circuit to the Boolean sahres
-  auto output = backend.make_circuit(eq_circuit, xor_inv, fkee);
+  auto output = backend.make_circuit(gt_circuit, bo, bo2);
 
   // create an output gates of the result
   auto output_future = boolean_tof.make_boolean_output_gate_my(MOTION::ALL_PARTIES, output);
@@ -246,7 +265,7 @@ void run_circuit(const Options& options, MOTION::SwiftBackend& backend) {
    backend.run();
    auto gtop = output_future.get();
    assert(gtop.size() == 1);
-   std::cout << gtop[0].AsString() << std::endl;
+   std::cout <<"ANS == === " << gtop[0].AsString() << std::endl;
 //   assert(sorted_output.size() == 256);
 //   std::vector<uint64_t> ans(inps.size(), 0);
 //   assert(sorted_output[0].GetSize() == inps.size());

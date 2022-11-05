@@ -1684,12 +1684,12 @@ void BooleanSWIFTSORTGate::evaluate_online_with_context(MOTION::ExecutionContext
     const auto& w_in = inputs_[wire_i];
     w_in->wait_online();
   }
-  int rounds = 0;
+  // int rounds = 0;
   while(!unsorted_intervals_.empty()) {
-    std::cout << "Sorting round : " << rounds << std::endl;
-    rounds++;
-    std::cout << unsorted_intervals_.size() << "<-- number of unsorted intervals!\n";
-    for (auto it : unsorted_intervals_) std::cout << " :::::: " << it.second - it.first + 1 << "\n\n\n";
+    // std::cout << "Sorting round : " << rounds << std::endl;
+    // rounds++;
+    // std::cout << unsorted_intervals_.size() << "<-- number of unsorted intervals!\n";
+    // for (auto it : unsorted_intervals_) std::cout << " :::::: " << it.second - it.first + 1 << "\n\n\n";
     ENCRYPTO::FiberThreadPool local_setup_pool(0);
     ENCRYPTO::FiberThreadPool local_online_pool(0);
     // Make a new gate!
@@ -1752,24 +1752,6 @@ void BooleanSWIFTSORTGate::evaluate_online_with_context(MOTION::ExecutionContext
         ++cur_idx;
       }
     }
-    // Do +1 to the public value of A.
-    // This is done as -A = Inv(A) + 1.
-    if (num_wires_ > 64) {
-      int tot_values = A[0]->get_num_simd();
-      std::vector<int> carry(tot_values, 0);
-      for (int v = 0; v < tot_values; ++v) {
-        int sum = 1 + (int)A[0]->get_public_share().Get(v);
-        carry[v] = (sum / 2);
-        A[0]->get_public_share().Set((sum%2), v);
-      }
-      for (int bit_pos = 1; bit_pos < num_wires_; ++bit_pos) {
-        for (int v = 0; v < tot_values; ++v) {
-          int sum = carry[v] + (int)A[bit_pos]->get_public_share().Get(v);
-          carry[v] = (sum / 2);
-          A[bit_pos]->get_public_share().Set((sum%2), v);
-        }
-      }
-    }
     for (std::size_t j = 0; j < num_wires_; ++j) {
       A[j]->set_setup_ready();
       A[j]->set_online_ready();
@@ -1778,20 +1760,11 @@ void BooleanSWIFTSORTGate::evaluate_online_with_context(MOTION::ExecutionContext
     }
       WireVector AA = cast_wires(A);
       WireVector BB = cast_wires(B);
-      if (num_wires_ <= 64) {
-        AA.insert(
+      AA.insert(
           AA.end(),
           std::make_move_iterator(BB.begin()),
           std::make_move_iterator(BB.end())
         );
-      } else {
-        BB.insert(
-          BB.end(),
-          std::make_move_iterator(AA.begin()),
-          std::make_move_iterator(AA.end())
-        );
-        AA = BB;
-      }
       
       auto [gates, output_wires] = construct_two_input_circuit(swift_provider_, gt_circuit_, AA);
       gates_.push_back(std::move(gates));
@@ -1822,6 +1795,7 @@ void BooleanSWIFTSORTGate::evaluate_online_with_context(MOTION::ExecutionContext
       cur_idx = 0;
       assert(comparision_results[0].GetSize() == new_gate_num_simd);
       std::vector<std::pair<std::size_t, std::size_t>> new_intervals;
+      //std::cout <<"Comp res ==== "<< comparision_results[0].AsString() << std::endl;
       for (const auto& it : unsorted_intervals_) {
         const int strt = it.first;
         const int ed = it.second;
@@ -1829,11 +1803,13 @@ void BooleanSWIFTSORTGate::evaluate_online_with_context(MOTION::ExecutionContext
         for (int i = ed; i >= strt; i--) {
           int result_idx = cur_idx + (i - strt);
           // Means array elemet at i is greater than pivot element.
-          if (comparision_results[0].Get(result_idx) == 1) {
+          if (i != strt && 
+          comparision_results[0].Get(result_idx) == 1) {
             p--;
             std::swap(permutation_[i], permutation_[p]);
           }
         }
+        //std::cout << strt << " <-----> " << p << std::endl;
         p--; std::swap(permutation_[strt], permutation_[p]);
         // insert strt, p-1 as a new interval.
         if (strt < p-1 && p > 0) {
