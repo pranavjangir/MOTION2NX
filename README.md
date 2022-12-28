@@ -1,7 +1,8 @@
 # MPClan -- Protocol Suite for Privacy-Conscious Computations
 
-This software is the preliminary version of the semi-honest MPC protocol of MPClan which builds on the MOTION2NX framework available at https://github.com/encryptogroup/MOTION2NX. Our implementation currently includes basic MPC protocols for input sharing, addition, multiplication and output reconstruction. The support for securely performing neural network inference is also present. For this, building blocks required to evaluate neural networks have been implemented. 
+This software is the preliminary version of the semi-honest MPC protocol of MPClan (https://eprint.iacr.org/2022/675) which builds on the MOTION2NX framework available at https://github.com/encryptogroup/MOTION2NX. Our implementation currently includes basic MPC protocols for input sharing, addition, multiplication and output reconstruction. The support for securely performing neural network inference is also present. For this, building blocks required to evaluate neural networks have been implemented. 
 
+We re-iterate that the code is still in its initial stages and under development.
 We re-iterate that the code is still in its initial stages and under development.
 
 
@@ -69,28 +70,3 @@ needs additionally be passed to CMake:
 - `-DMOTION_BUILD_ONNX_ADAPTER=On`
 
 This builds the library target `motion_onnx` and the `onnx2motion` executable.
-
-
-
-### Examples
-
-
-#### Using the MOTION2NX Low-Level API
-
-See [here](src/examples/millionaires_problem) for an example solution of Yao's
-Millionaires' Problem.
-
-
-#### Using the `onnx2motion` Application
-
-```
-$ ./bin/onnx2motion \
-    --my-id ${PARTY_ID} \
-    --party 0,::1,7000 \
-    --party 1,::1,7001 \
-    --arithmetic-protocol GMW \
-    --boolean-protocol GMW \
-    --model /path/to/model.onnx \
-    --json
-```
-with "${PARTY_ID}" either 0 or 1.
