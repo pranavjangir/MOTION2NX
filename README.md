@@ -2,8 +2,56 @@
 
 This software is the preliminary version of the semi-honest MPC protocol of MPClan (https://eprint.iacr.org/2022/675) which builds on the MOTION2NX framework available at https://github.com/encryptogroup/MOTION2NX. Our implementation currently includes basic MPC protocols for input sharing, addition, multiplication and output reconstruction. The support for securely performing neural network inference is also present. For this, building blocks required to evaluate neural networks have been implemented. 
 
+
 We re-iterate that the code is still in its initial stages and under development.
-We re-iterate that the code is still in its initial stages and under development.
+
+# Example MPCLan arithmetic multiplication
+
+Commands to check the working of multiplication with `n` parties.
+Parties `1` and `2` provide the two integers to be multiplied.
+
+The input is shared among all `n` parties and output is reconstructed towards all the parties. 
+
+Build project using 
+```
+$ CC=gcc CXX=g++ cmake \
+    -B build_debwithrelinfo_gcc \
+    -DCMAKE_BUILD_TYPE=DebWithRelInfo \
+    -DMOTION_BUILD_EXE=On \
+    -DMOTION_BUILD_TESTS=On \
+    -DMOTION_USE_AVX=AVX2
+$ cmake --build build_debwithrelinfo_gcc
+```
+
+Then run :
+```
+./dbg/bin/mpclan_multiplication --my-id 0 \
+ --num_parties 3 \
+ --party 0,<PARTY_0_IP_ADDRESS> \
+ --party 1,<PARTY_1_IP_ADDRESS> \
+ --party 2,<PARTY_2_IP_ADDRESS> \
+ --arithmetic-protocol beavy --boolean-protocol yao --repetitions 5 --input-value 10
+
+ ./dbg/bin/mpclan_multiplication --my-id 1 \
+ --num_parties 3 \
+ --party 0,<PARTY_0_IP_ADDRESS> \
+ --party 1,<PARTY_1_IP_ADDRESS> \
+ --party 2,<PARTY_2_IP_ADDRESS> \
+ --arithmetic-protocol beavy --boolean-protocol yao --repetitions 5 --input-value 20
+
+ ./dbg/bin/mpclan_multiplication --my-id 2 \
+ --num_parties 3 \
+ --party 0,<PARTY_0_IP_ADDRESS> \
+ --party 1,<PARTY_1_IP_ADDRESS> \
+ --party 2,<PARTY_2_IP_ADDRESS> \
+ --arithmetic-protocol beavy --boolean-protocol yao --repetitions 5 --input-value 30
+```
+
+`Output = 200`
+
+The `num_parties` option is configurable, and `my-id` option and IP addresses change accordingly.
+
+
 
 
 ## Build Instructions
